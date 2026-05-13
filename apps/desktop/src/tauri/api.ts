@@ -149,6 +149,24 @@ export const SettingsApi = {
   set: (settings: Settings) => invoke<void>("settings_set", { settings }),
 };
 
+export const CollaboratorApi = {
+  async createSession(backendUrl: string): Promise<import("./types").CollaboratorSession> {
+    const url = `${backendUrl.replace(/\/$/, "")}/collaborator/sessions`;
+    const res = await fetch(url, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as import("./types").CollaboratorSession;
+  },
+  async listPings(
+    backendUrl: string,
+    sessionId: string,
+  ): Promise<import("./types").CollaboratorPing[]> {
+    const url = `${backendUrl.replace(/\/$/, "")}/collaborator/sessions/${sessionId}/pings`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as import("./types").CollaboratorPing[];
+  },
+};
+
 export const InterceptApi = {
   list: () => invoke<InterceptEntry[]>("intercept_list"),
   forward: (id: string, request?: import("./types").CapturedRequest, bodyB64?: string) =>

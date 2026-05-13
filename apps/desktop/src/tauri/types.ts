@@ -267,3 +267,21 @@ export type InterceptUpdate =
       id: string;
       decision: InterceptDecisionKind;
     };
+
+export interface CollaboratorPing {
+  timestamp: number;
+  method: string;
+  path: string;
+  query: string;
+  remote_addr: string | null;
+  headers: Record<string, string>;
+  body_preview: string;
+  body_size: number;
+}
+
+export interface CollaboratorSession {
+  session_id: string;
+  created_at: number;
+  polling_url: string;
+  pings: CollaboratorPing[];
+}
