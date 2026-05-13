@@ -459,6 +459,15 @@ code,
 .status-5xx { background: rgba(239, 80, 112, 0.16); color: var(--danger); }
 .status-other { background: var(--bg-3); color: var(--text-dim); }
 
+/* Issue severity badges */
+.sev-critical { background: rgba(232, 67, 78, 0.20); color: #ff8088; text-transform: uppercase; }
+.sev-high     { background: rgba(239, 122, 80, 0.18); color: #ffb38a; text-transform: uppercase; }
+.sev-medium   { background: rgba(240, 184, 55, 0.18); color: var(--warning); text-transform: uppercase; }
+.sev-low      { background: rgba(79, 157, 255, 0.18); color: var(--info); text-transform: uppercase; }
+.sev-info     { background: var(--bg-3); color: var(--text-dim); text-transform: uppercase; }
+
+.row-selected { background: rgba(79, 157, 255, 0.12) !important; }
+
 /* Code blocks */
 pre.code,
 code.code,

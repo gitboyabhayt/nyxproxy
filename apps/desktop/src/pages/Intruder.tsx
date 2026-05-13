@@ -4,7 +4,7 @@ import { SplitPane } from "@/components/SplitPane";
 import { textToBase64, statusBucket } from "@/lib/codec";
 import { useAppStore } from "@/state/store";
 import { AiApi, IntruderApi } from "@/tauri/api";
-import type { CapturedRequest, IntruderAttempt } from "@/tauri/types";
+import type { CapturedRequest, IntruderAttack, IntruderAttempt } from "@/tauri/types";
 
 const DEFAULT_PAYLOADS = `admin
 guest
@@ -13,6 +13,41 @@ guest
 ../../../../etc/passwd
 %00
 $(whoami)`;
+
+const DEFAULT_PASSWORDS = `password
+123456
+admin
+letmein
+P@ssw0rd!
+welcome
+qwerty`;
+
+const ATTACK_OPTIONS: { value: IntruderAttack; label: string; help: string }[] = [
+  {
+    value: "sniper",
+    label: "Sniper",
+    help: "1 payload set. Walk every marker independently: positions × payloads attempts.",
+  },
+  {
+    value: "battering_ram",
+    label: "Battering ram",
+    help: "1 payload set. Replace every marker with the same payload per attempt.",
+  },
+  {
+    value: "pitchfork",
+    label: "Pitchfork",
+    help: "N payload sets — one per marker. Zip the sets row-by-row.",
+  },
+  {
+    value: "cluster_bomb",
+    label: "Cluster bomb",
+    help: "N payload sets — Cartesian product across every marker position.",
+  },
+];
+
+function countMarkers(template: string): number {
+  return Math.floor((template.match(/§/g) ?? []).length / 2);
+}
 
 export function IntruderPage() {
   const history = useAppStore((s) => s.history);
@@ -29,25 +64,39 @@ export function IntruderPage() {
 
   const [target, setTarget] = useState<CapturedRequest | null>(initialFlow);
   const [template, setTemplate] = useState<string>(() =>
-    initialFlow ? buildTemplate(initialFlow) : sampleTemplate()
+    initialFlow ? buildTemplate(initialFlow) : sampleTemplate(),
   );
-  const [payloads, setPayloads] = useState<string>(DEFAULT_PAYLOADS);
+  const [attack, setAttack] = useState<IntruderAttack>("sniper");
+  const [payloadSets, setPayloadSets] = useState<string[]>([DEFAULT_PAYLOADS, DEFAULT_PASSWORDS]);
   const [concurrency, setConcurrency] = useState(8);
   const [running, setRunning] = useState(false);
   const [attempts, setAttempts] = useState<IntruderAttempt[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+
+  const markerCount = useMemo(() => countMarkers(template), [template]);
+  const setsNeeded =
+    attack === "sniper" || attack === "battering_ram" ? 1 : Math.max(markerCount, 1);
 
   const start = async () => {
     if (!target) {
       toast("warning", "Select a flow from Proxy history first.");
       return;
     }
-    const list = payloads
-      .split(/\r?\n/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    if (list.length === 0) {
-      toast("warning", "Add at least one payload.");
+    const usedSets = payloadSets
+      .slice(0, setsNeeded)
+      .map((raw) =>
+        raw
+          .split(/\r?\n/)
+          .map((s) => s.trim())
+          .filter((s) => s.length > 0),
+      )
+      .filter((set) => set.length > 0);
+    if (usedSets.length === 0) {
+      toast("warning", "Add at least one payload to the first set.");
+      return;
+    }
+    if ((attack === "pitchfork" || attack === "cluster_bomb") && markerCount === 0) {
+      toast("warning", "Add at least one §marker§ pair to the template first.");
       return;
     }
     setRunning(true);
@@ -56,8 +105,8 @@ export function IntruderPage() {
       const parsed = parseTemplate(template, target);
       const result = await IntruderApi.run(`session-${Date.now()}`, {
         template: parsed,
-        payloads: list,
-        attack: "sniper",
+        payload_sets: usedSets,
+        attack,
         concurrency,
         insecure: false,
       });
@@ -69,7 +118,7 @@ export function IntruderPage() {
     }
   };
 
-  const askAiForPayloads = async () => {
+  const askAiForPayloads = async (setIndex: number) => {
     if (!target) return;
     setAiBusy(true);
     try {
@@ -84,16 +133,18 @@ export function IntruderPage() {
           }, {}),
           body: null,
         },
-        parameter: "§",
-        attack_type: "sniper",
-        count: 20,
+        parameter: `set ${setIndex + 1}`,
+        attack_type: attack,
+        count: 25,
       });
       const lines = resp.content
         .split(/\r?\n/)
         .map((s) => s.replace(/^[\d.\-\s*]+/, "").trim())
         .filter((s) => s.length > 0 && !s.toLowerCase().startsWith("here are"));
       if (lines.length > 0) {
-        setPayloads(lines.join("\n"));
+        const next = [...payloadSets];
+        next[setIndex] = lines.join("\n");
+        setPayloadSets(next);
         toast("info", `AI proposed ${lines.length} payloads.`);
       } else {
         toast("warning", "AI returned no payloads — keeping current list.");
@@ -105,6 +156,25 @@ export function IntruderPage() {
     }
   };
 
+  const totalEstimate = useMemo(() => {
+    const sets = payloadSets.slice(0, setsNeeded).map((raw) =>
+      raw
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0),
+    );
+    switch (attack) {
+      case "sniper":
+        return (sets[0]?.length ?? 0) * Math.max(markerCount, 1);
+      case "battering_ram":
+        return sets[0]?.length ?? 0;
+      case "pitchfork":
+        return sets.length > 0 ? Math.min(...sets.map((s) => s.length)) : 0;
+      case "cluster_bomb":
+        return sets.length > 0 ? sets.reduce((acc, s) => acc * s.length, 1) : 0;
+    }
+  }, [attack, payloadSets, setsNeeded, markerCount]);
+
   return (
     <SplitPane
       storageKey="intruder"
@@ -112,7 +182,8 @@ export function IntruderPage() {
       first={
         <div className="panel" style={{ height: "100%", border: "none", borderRadius: 0 }}>
           <div className="panel-header">
-            Sniper template — mark insertion points with <code className="code" style={{ padding: "0 4px" }}>§</code>
+            Positions — wrap insertion points with{" "}
+            <code className="code" style={{ padding: "0 4px" }}>§value§</code>
           </div>
           <div className="toolbar">
             <select
@@ -131,7 +202,8 @@ export function IntruderPage() {
               <option value="">Load from history…</option>
               {history.slice(0, 50).map((h) => (
                 <option key={h.flow.id} value={h.flow.id}>
-                  {h.flow.request.method} {h.flow.request.authority}{h.flow.request.path}
+                  {h.flow.request.method} {h.flow.request.authority}
+                  {h.flow.request.path}
                 </option>
               ))}
             </select>
@@ -139,48 +211,123 @@ export function IntruderPage() {
               {running ? "Running…" : "Start attack"}
             </button>
           </div>
-          <div className="panel-body" style={{ padding: 12 }}>
+          <div className="panel-body" style={{ padding: 12, overflow: "auto" }}>
             <textarea
               className="code-input"
-              style={{ flex: 1, minHeight: 220 }}
+              style={{ minHeight: 200 }}
               value={template}
               onChange={(e) => setTemplate(e.target.value)}
             />
-            <div className="toolbar" style={{ padding: 0, marginTop: 12, background: "transparent", border: "none" }}>
-              <label className="label" style={{ marginRight: 6 }}>Concurrency</label>
-              <input
-                type="number"
-                value={concurrency}
-                onChange={(e) => setConcurrency(Math.max(1, Number(e.target.value) || 1))}
-                style={{ width: 80 }}
-                min={1}
-                max={64}
-              />
-              <button className="btn" onClick={askAiForPayloads} disabled={aiBusy}>
-                {aiBusy ? "Asking AI…" : "Ask AI for payloads"}
-              </button>
+            <div
+              className="toolbar"
+              style={{
+                padding: 0,
+                marginTop: 12,
+                background: "transparent",
+                border: "none",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <label className="label" style={{ display: "block", marginBottom: 4 }}>
+                  Attack mode
+                </label>
+                <select value={attack} onChange={(e) => setAttack(e.target.value as IntruderAttack)}>
+                  {ATTACK_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="label" style={{ display: "block", marginBottom: 4 }}>
+                  Concurrency
+                </label>
+                <input
+                  type="number"
+                  value={concurrency}
+                  onChange={(e) => setConcurrency(Math.max(1, Number(e.target.value) || 1))}
+                  style={{ width: 80 }}
+                  min={1}
+                  max={64}
+                />
+              </div>
+              <div style={{ flex: 1, minWidth: 140 }}>
+                <label className="label" style={{ display: "block", marginBottom: 4 }}>
+                  Positions detected
+                </label>
+                <div style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>
+                  {markerCount} marker pair{markerCount === 1 ? "" : "s"} —
+                  about {totalEstimate.toLocaleString()} attempts
+                </div>
+              </div>
             </div>
-            <h3 style={{ margin: "12px 0 4px", fontSize: 11, color: "var(--text-muted)" }}>PAYLOADS</h3>
-            <textarea
-              className="code-input"
-              style={{ minHeight: 180 }}
-              value={payloads}
-              onChange={(e) => setPayloads(e.target.value)}
-            />
+            <p
+              style={{
+                margin: "10px 0 12px",
+                fontSize: 12,
+                color: "var(--text-muted)",
+              }}
+            >
+              {ATTACK_OPTIONS.find((o) => o.value === attack)?.help}
+            </p>
+            {Array.from({ length: setsNeeded }).map((_, idx) => (
+              <div key={idx} style={{ marginTop: idx === 0 ? 0 : 12 }}>
+                <div
+                  className="toolbar"
+                  style={{
+                    padding: 0,
+                    background: "transparent",
+                    border: "none",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  <h3
+                    style={{
+                      margin: 0,
+                      fontSize: 11,
+                      color: "var(--text-muted)",
+                    }}
+                  >
+                    PAYLOAD SET {idx + 1}
+                  </h3>
+                  <button
+                    className="btn"
+                    onClick={() => askAiForPayloads(idx)}
+                    disabled={aiBusy}
+                    style={{ padding: "2px 8px", fontSize: 12 }}
+                  >
+                    {aiBusy ? "Asking AI…" : "Ask AI"}
+                  </button>
+                </div>
+                <textarea
+                  className="code-input"
+                  style={{ minHeight: 130 }}
+                  value={payloadSets[idx] ?? ""}
+                  onChange={(e) => {
+                    const next = [...payloadSets];
+                    while (next.length <= idx) next.push("");
+                    next[idx] = e.target.value;
+                    setPayloadSets(next);
+                  }}
+                />
+              </div>
+            ))}
           </div>
         </div>
       }
       second={
         <div className="panel" style={{ height: "100%", border: "none", borderRadius: 0 }}>
-          <div className="panel-header">
-            Attempts ({attempts.length})
-          </div>
+          <div className="panel-header">Attempts ({attempts.length})</div>
           <div className="panel-body" style={{ overflow: "auto" }}>
             <table className="data-table">
               <thead>
                 <tr>
                   <th style={{ width: 40 }}>#</th>
-                  <th>Payload</th>
+                  <th>Payload(s)</th>
                   <th style={{ width: 80 }}>Status</th>
                   <th style={{ width: 100 }}>Length</th>
                   <th style={{ width: 80 }}>Time</th>
@@ -201,7 +348,7 @@ export function IntruderPage() {
                   <tr key={a.index}>
                     <td>{a.index}</td>
                     <td>
-                      <span className="mono">{a.payload}</span>
+                      <span className="mono">{a.payloads.join(" | ")}</span>
                     </td>
                     <td>
                       <span className={`status-badge ${statusBucket(a.status ?? 0)}`}>
@@ -224,7 +371,6 @@ export function IntruderPage() {
 
 function buildTemplate(req: CapturedRequest): string {
   const url = req.url;
-  // Mark each query-string value with §
   let marked = url;
   const idx = url.indexOf("?");
   if (idx !== -1) {
@@ -235,7 +381,7 @@ function buildTemplate(req: CapturedRequest): string {
       .map((pair) => {
         const eq = pair.indexOf("=");
         if (eq === -1) return pair;
-        return `${pair.slice(0, eq + 1)}§`;
+        return `${pair.slice(0, eq + 1)}§${pair.slice(eq + 1)}§`;
       })
       .join("&");
     marked = head + tail;
@@ -260,7 +406,7 @@ function parseTemplate(template: string, fallback: CapturedRequest): CapturedReq
   let version = fallback.http_version;
   const headers: Array<{ name: string; value: string }> = [];
   let mode: "header" | "body" | "kv" = "kv";
-  let body: string[] = [];
+  const body: string[] = [];
   for (const line of lines) {
     if (mode === "kv") {
       if (line.startsWith("Method:")) method = line.slice(7).trim();
@@ -275,7 +421,10 @@ function parseTemplate(template: string, fallback: CapturedRequest): CapturedReq
       const trimmed = line.replace(/^\s+/, "");
       const idx = trimmed.indexOf(":");
       if (idx !== -1) {
-        headers.push({ name: trimmed.slice(0, idx).trim(), value: trimmed.slice(idx + 1).trim() });
+        headers.push({
+          name: trimmed.slice(0, idx).trim(),
+          value: trimmed.slice(idx + 1).trim(),
+        });
       }
     } else {
       body.push(line);
@@ -307,7 +456,7 @@ function safeParseUrl(u: string): URL | null {
 function sampleTemplate(): string {
   return [
     "Method: GET",
-    "URL: https://example.com/login?user=§",
+    "URL: https://example.com/login?user=§admin§&password=§password§",
     "HTTP-Version: HTTP/1.1",
     "",
     "Headers:",

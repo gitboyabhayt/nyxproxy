@@ -1,8 +1,9 @@
-import { useMemo } from "react";
-import { ArrowRight, Brain, Crosshair, Repeat, Shield } from "lucide-react";
+import { useMemo, useState } from "react";
+import { ArrowRight, Brain, Crosshair, FileDown, Repeat, Shield } from "lucide-react";
 
 import { statusBucket } from "@/lib/codec";
 import { useAppStore } from "@/state/store";
+import { ReportApi } from "@/tauri/api";
 
 interface Props {
   onNavigate: (page: any) => void;
@@ -13,6 +14,36 @@ export function DashboardPage({ onNavigate }: Props) {
   const proxyStatus = useAppStore((s) => s.proxy.status);
   const ca = useAppStore((s) => s.ca);
   const providers = useAppStore((s) => s.providers);
+  const toast = useAppStore((s) => s.toast);
+  const [exporting, setExporting] = useState<"html" | "json" | null>(null);
+
+  const exportReport = async (format: "html" | "json") => {
+    setExporting(format);
+    try {
+      const report = await ReportApi.build();
+      const body =
+        format === "html"
+          ? await ReportApi.renderHtml(report)
+          : await ReportApi.renderJson(report);
+      const blob = new Blob([body], {
+        type: format === "html" ? "text/html" : "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `nyxproxy-report-${Date.now()}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast(
+        "info",
+        `Report exported — ${report.flow_count} flows, ${report.issue_count} issues.`,
+      );
+    } catch (err) {
+      toast("error", `Export failed: ${err}`);
+    } finally {
+      setExporting(null);
+    }
+  };
 
   const stats = useMemo(() => {
     const total = history.length;
@@ -111,6 +142,24 @@ export function DashboardPage({ onNavigate }: Props) {
           <span style={{ marginLeft: "auto", color: "var(--text-muted)" }}>
             CA: {ca?.cert_path ?? "—"}
           </span>
+          <button
+            className="btn small ghost"
+            onClick={() => exportReport("html")}
+            disabled={exporting !== null}
+            style={{ marginLeft: 8 }}
+          >
+            <FileDown size={14} style={{ marginRight: 4 }} />
+            {exporting === "html" ? "Exporting…" : "Export HTML"}
+          </button>
+          <button
+            className="btn small ghost"
+            onClick={() => exportReport("json")}
+            disabled={exporting !== null}
+            style={{ marginLeft: 4 }}
+          >
+            <FileDown size={14} style={{ marginRight: 4 }} />
+            {exporting === "json" ? "Exporting…" : "Export JSON"}
+          </button>
         </div>
         <div className="panel-body" style={{ overflow: "auto", maxHeight: 280 }}>
           {recent.length === 0 ? (
