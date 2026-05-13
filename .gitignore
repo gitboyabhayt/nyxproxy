@@ -1,0 +1,86 @@
+# Rust
+target/
+**/*.rs.bk
+Cargo.lock.bak
+
+# Node
+node_modules/
+dist/
+.vite/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+# Python build artefacts (scoped to the backend so we don't accidentally
+# ignore the React frontend's `src/lib/` directory).
+apps/backend/build/
+apps/backend/develop-eggs/
+apps/backend/downloads/
+apps/backend/eggs/
+apps/backend/.eggs/
+apps/backend/lib/
+apps/backend/lib64/
+apps/backend/parts/
+apps/backend/sdist/
+apps/backend/var/
+apps/backend/wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+ca/
+!apps/desktop/src-tauri/src/proxy/ca/
+
+# Coverage
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# OS
+Thumbs.db
+
+# Build artifacts
+*.dmg
+*.msi
+*.AppImage
+*.deb
+*.rpm
+
+# NyxProxy runtime data
+nyxproxy-data/
+~/.nyxproxy/

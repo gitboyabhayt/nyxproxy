@@ -1,0 +1,293 @@
+//! Tauri command surface exposed to the React frontend.
+
+use std::sync::Arc;
+
+use futures_util::StreamExt;
+use nyxproxy_core::decoder::{self, Codec, DecoderResult};
+use nyxproxy_core::history::HistoryEntry;
+use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
+use nyxproxy_core::model::CapturedResponse;
+use nyxproxy_core::proxy::ProxyConfig;
+use nyxproxy_core::repeater::{self, RepeaterRequest};
+use nyxproxy_core::sequencer::{self, SequencerReport};
+use parking_lot::Mutex;
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Emitter, State};
+use uuid::Uuid;
+
+use crate::ai::{
+    AiClient, AnalyzeRequestBody, AnalyzeResponse, ChatRequest, ChatResponse,
+    PayloadRequestBody, ProvidersResponse,
+};
+use crate::settings::Settings;
+use crate::state::AppState;
+
+type AppStateSlot = Arc<Mutex<Option<AppState>>>;
+
+/// Helper to access the initialised state or return a friendly error.
+fn with_state<R>(slot: &AppStateSlot, f: impl FnOnce(&AppState) -> R) -> Result<R, String> {
+    let guard = slot.lock();
+    let state = guard.as_ref().ok_or("nyxproxy is still initialising")?;
+    Ok(f(state))
+}
+
+#[derive(Debug, Serialize)]
+pub struct ProxyStatus {
+    pub running: bool,
+    pub listen_addr: String,
+    pub history_size: usize,
+    pub ca_cert_path: String,
+}
+
+#[tauri::command]
+pub fn proxy_status(state: State<'_, AppStateSlot>) -> Result<ProxyStatus, String> {
+    with_state(&state, |s| ProxyStatus {
+        running: s.running(),
+        listen_addr: s.proxy.snapshot_config().listen_addr,
+        history_size: s.history.len(),
+        ca_cert_path: s.ca.ca_cert_path().display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub async fn proxy_start(state: State<'_, AppStateSlot>) -> Result<String, String> {
+    let (proxy, handle_slot) = {
+        let guard = state.lock();
+        let app_state = guard.as_ref().ok_or("nyxproxy is still initialising")?;
+        if app_state.running() {
+            return Err("proxy already running".into());
+        }
+        (app_state.proxy.clone(), app_state.proxy_handle.clone())
+    };
+    let handle = proxy.bind().await.map_err(|e| e.to_string())?;
+    let addr = handle.local_addr.to_string();
+    *handle_slot.lock() = Some(handle);
+    Ok(addr)
+}
+
+#[tauri::command]
+pub async fn proxy_stop(state: State<'_, AppStateSlot>) -> Result<(), String> {
+    let handle_slot = {
+        let guard = state.lock();
+        let app_state = guard.as_ref().ok_or("nyxproxy is still initialising")?;
+        app_state.proxy_handle.clone()
+    };
+    let handle = handle_slot.lock().take();
+    if let Some(h) = handle {
+        h.shutdown();
+        h.join().await;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub fn proxy_get_config(state: State<'_, AppStateSlot>) -> Result<ProxyConfig, String> {
+    with_state(&state, |s| s.proxy.snapshot_config())
+}
+
+#[tauri::command]
+pub fn proxy_set_config(
+    state: State<'_, AppStateSlot>,
+    config: ProxyConfig,
+) -> Result<(), String> {
+    with_state(&state, |s| s.update_proxy_config(config))
+}
+
+#[tauri::command]
+pub fn history_list(state: State<'_, AppStateSlot>) -> Result<Vec<HistoryEntry>, String> {
+    with_state(&state, |s| s.history.list())
+}
+
+#[tauri::command]
+pub fn history_get(
+    state: State<'_, AppStateSlot>,
+    id: Uuid,
+) -> Result<Option<HistoryEntry>, String> {
+    with_state(&state, |s| s.history.get(id))
+}
+
+#[tauri::command]
+pub fn history_clear(state: State<'_, AppStateSlot>) -> Result<(), String> {
+    with_state(&state, |s| s.history.clear())
+}
+
+#[tauri::command]
+pub fn history_search(
+    state: State<'_, AppStateSlot>,
+    query: String,
+) -> Result<Vec<HistoryEntry>, String> {
+    with_state(&state, |s| s.history.search(&query))
+}
+
+#[tauri::command]
+pub fn history_set_note(
+    state: State<'_, AppStateSlot>,
+    id: Uuid,
+    note: Option<String>,
+) -> Result<bool, String> {
+    with_state(&state, |s| s.history.set_note(id, note))
+}
+
+#[tauri::command]
+pub fn history_set_starred(
+    state: State<'_, AppStateSlot>,
+    id: Uuid,
+    starred: bool,
+) -> Result<bool, String> {
+    with_state(&state, |s| s.history.set_starred(id, starred))
+}
+
+#[derive(Debug, Serialize)]
+pub struct CaInfo {
+    pub cert_pem: String,
+    pub cert_path: String,
+    pub data_dir: String,
+}
+
+#[tauri::command]
+pub fn ca_info(state: State<'_, AppStateSlot>) -> Result<CaInfo, String> {
+    with_state(&state, |s| CaInfo {
+        cert_pem: s.ca.cert_pem().to_string(),
+        cert_path: s.ca.ca_cert_path().display().to_string(),
+        data_dir: s.ca.data_dir().display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn decoder_encode(codec: Codec, input: String) -> Result<String, String> {
+    decoder::encode(codec, &input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn decoder_decode(codec: Codec, input: String) -> Result<String, String> {
+    decoder::decode(codec, &input).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn decoder_smart(input: String) -> Result<Vec<DecoderResult>, String> {
+    Ok(decoder::smart_decode(&input))
+}
+
+#[tauri::command]
+pub fn sequencer_analyze(samples: Vec<String>) -> Result<SequencerReport, String> {
+    Ok(sequencer::analyze(samples))
+}
+
+#[tauri::command]
+pub async fn repeater_send(request: RepeaterRequest) -> Result<CapturedResponse, String> {
+    repeater::send(&request).await.map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IntruderStartArgs {
+    pub session_id: String,
+    pub config: IntruderConfig,
+}
+
+#[tauri::command]
+pub async fn intruder_run(
+    app: AppHandle,
+    args: IntruderStartArgs,
+) -> Result<Vec<IntruderAttempt>, String> {
+    let event_name = format!("nyxproxy://intruder/{}", args.session_id);
+    let mut stream = Box::pin(run_intruder(&args.config));
+    let mut collected = Vec::new();
+    while let Some(attempt) = stream.next().await {
+        if let Err(err) = app.emit(&event_name, &attempt) {
+            tracing::warn!(?err, "intruder emit failed");
+        }
+        collected.push(attempt);
+    }
+    let _ = app.emit(&format!("{event_name}/done"), &args.session_id);
+    Ok(collected)
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ChatArgs {
+    pub messages: Vec<crate::ai::ChatMessage>,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    #[serde(default = "default_temperature")]
+    pub temperature: f64,
+    #[serde(default = "default_max_tokens")]
+    pub max_tokens: u32,
+}
+
+fn default_temperature() -> f64 {
+    0.2
+}
+
+fn default_max_tokens() -> u32 {
+    1024
+}
+
+fn ai_client_from_state(state: &AppState) -> AiClient {
+    let s = state.current_settings();
+    AiClient::new(s.backend_url, s.backend_token)
+}
+
+#[tauri::command]
+pub async fn ai_chat(
+    state: State<'_, AppStateSlot>,
+    args: ChatArgs,
+) -> Result<ChatResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client
+        .chat(ChatRequest {
+            messages: args.messages,
+            provider: args.provider,
+            model: args.model,
+            temperature: args.temperature,
+            max_tokens: args.max_tokens,
+        })
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_analyze_request(
+    state: State<'_, AppStateSlot>,
+    body: AnalyzeRequestBody,
+) -> Result<AnalyzeResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.analyze_request(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_find_vulns(
+    state: State<'_, AppStateSlot>,
+    body: AnalyzeRequestBody,
+) -> Result<AnalyzeResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.find_vulns(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_generate_payloads(
+    state: State<'_, AppStateSlot>,
+    body: PayloadRequestBody,
+) -> Result<AnalyzeResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.generate_payloads(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_list_providers(
+    state: State<'_, AppStateSlot>,
+) -> Result<ProvidersResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.providers().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn settings_get(state: State<'_, AppStateSlot>) -> Result<Settings, String> {
+    with_state(&state, |s| s.current_settings())
+}
+
+#[tauri::command]
+pub fn settings_set(
+    state: State<'_, AppStateSlot>,
+    settings: Settings,
+) -> Result<(), String> {
+    with_state(&state, |s| s.settings.replace(settings))
+}
