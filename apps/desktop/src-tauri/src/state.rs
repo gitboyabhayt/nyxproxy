@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use nyxproxy_core::ca::CertAuthority;
 use nyxproxy_core::history::HistoryStore;
+use nyxproxy_core::macros::MacroStore;
 use nyxproxy_core::plugins::PluginManager;
 use nyxproxy_core::proxy::{Proxy, ProxyConfig, ProxyHandle};
 use parking_lot::Mutex;
@@ -22,6 +23,7 @@ pub struct AppState {
     pub proxy_handle: Arc<Mutex<Option<ProxyHandle>>>,
     pub settings: SettingsStore,
     pub plugins: PluginManager,
+    pub macros: MacroStore,
 }
 
 impl AppState {
@@ -63,6 +65,8 @@ impl AppState {
             tracing::warn!(?err, "plugins: initial load failed");
         }
 
+        let macros = MacroStore::open(data_dir.join("macros.json"))?;
+
         Ok(Self {
             data_dir,
             ca,
@@ -71,6 +75,7 @@ impl AppState {
             proxy_handle: Arc::new(Mutex::new(None)),
             settings,
             plugins,
+            macros,
         })
     }
 

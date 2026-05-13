@@ -279,6 +279,49 @@ export interface CollaboratorPing {
   body_size: number;
 }
 
+export type ExtractionSource = "header" | "json_pointer" | "body_regex" | "cookie";
+
+export interface Extraction {
+  name: string;
+  source: ExtractionSource;
+  pattern: string;
+}
+
+export interface MacroStep {
+  id: string;
+  name: string;
+  request: import("./types").RepeaterRequest;
+  extractions: Extraction[];
+}
+
+export interface Macro {
+  id: string;
+  name: string;
+  description: string;
+  steps: MacroStep[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MacroStepResult {
+  step_id: string;
+  step_name: string;
+  request: import("./types").RepeaterRequest;
+  response: CapturedResponse | null;
+  extracted: Record<string, string>;
+  duration_ms: number;
+  error: string | null;
+}
+
+export interface MacroRunResult {
+  macro_id: string;
+  macro_name: string;
+  started_at: string;
+  steps: MacroStepResult[];
+  final_variables: Record<string, string>;
+  succeeded: boolean;
+}
+
 export interface CollaboratorSession {
   session_id: string;
   created_at: number;

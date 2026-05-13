@@ -7,6 +7,7 @@ use nyxproxy_core::decoder::{self, Codec, DecoderResult};
 use nyxproxy_core::history::HistoryEntry;
 use nyxproxy_core::intercept::InterceptEntry;
 use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
+use nyxproxy_core::macros::{run_macro, Macro, MacroRunResult};
 use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
 use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
@@ -440,6 +441,42 @@ pub async fn plugins_scan_history(
         out.extend(mgr.scan_flow_all(&flow).await);
     }
     Ok(out)
+}
+
+#[tauri::command]
+pub fn macros_list(state: State<'_, AppStateSlot>) -> Result<Vec<Macro>, String> {
+    with_state(&state, |s| s.macros.list())
+}
+
+#[tauri::command]
+pub fn macros_save(state: State<'_, AppStateSlot>, macro_: Macro) -> Result<Macro, String> {
+    let store = with_state(&state, |s| s.macros.clone())?;
+    store.save(macro_).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn macros_delete(state: State<'_, AppStateSlot>, id: String) -> Result<bool, String> {
+    let store = with_state(&state, |s| s.macros.clone())?;
+    store.delete(&id).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+pub struct MacroRunArgs {
+    pub id: String,
+    #[serde(default)]
+    pub variables: std::collections::HashMap<String, String>,
+}
+
+#[tauri::command]
+pub async fn macros_run(
+    state: State<'_, AppStateSlot>,
+    args: MacroRunArgs,
+) -> Result<MacroRunResult, String> {
+    let mac = with_state(&state, |s| s.macros.get(&args.id))?;
+    let Some(mac) = mac else {
+        return Err(format!("macro {} not found", args.id));
+    };
+    Ok(run_macro(&mac, args.variables).await)
 }
 
 #[tauri::command]

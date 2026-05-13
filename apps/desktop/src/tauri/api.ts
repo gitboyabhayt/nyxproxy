@@ -167,6 +167,17 @@ export const CollaboratorApi = {
   },
 };
 
+export const MacrosApi = {
+  list: () => invoke<import("./types").Macro[]>("macros_list"),
+  save: (macro: import("./types").Macro) =>
+    invoke<import("./types").Macro>("macros_save", { macro_: macro }),
+  delete: (id: string) => invoke<boolean>("macros_delete", { id }),
+  run: (id: string, variables?: Record<string, string>) =>
+    invoke<import("./types").MacroRunResult>("macros_run", {
+      args: { id, variables: variables ?? {} },
+    }),
+};
+
 export const InterceptApi = {
   list: () => invoke<InterceptEntry[]>("intercept_list"),
   forward: (id: string, request?: import("./types").CapturedRequest, bodyB64?: string) =>
@@ -295,6 +306,21 @@ function makeMockBridge(): TauriBridge {
         return [] as unknown as never;
       case "plugins_set_enabled":
         return true as unknown as never;
+      case "macros_list":
+        return [] as unknown as never;
+      case "macros_save":
+        return (cmd === "macros_save" ? args?.macro_ : null) as unknown as never;
+      case "macros_delete":
+        return true as unknown as never;
+      case "macros_run":
+        return {
+          macro_id: ((args?.args as Record<string, unknown>)?.id as string) ?? "",
+          macro_name: "",
+          started_at: new Date().toISOString(),
+          steps: [],
+          final_variables: {},
+          succeeded: true,
+        } as unknown as never;
       case "spider_run":
         return [] as unknown as never;
       case "report_build":

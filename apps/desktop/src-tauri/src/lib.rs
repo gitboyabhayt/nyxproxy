@@ -90,6 +90,10 @@ pub fn run() {
             commands::plugins_set_enabled,
             commands::plugins_scan_flow,
             commands::plugins_scan_history,
+            commands::macros_list,
+            commands::macros_save,
+            commands::macros_delete,
+            commands::macros_run,
             commands::settings_get,
             commands::settings_set,
         ])

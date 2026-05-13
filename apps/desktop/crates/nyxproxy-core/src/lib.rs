@@ -21,6 +21,7 @@ pub mod error;
 pub mod history;
 pub mod intercept;
 pub mod intruder;
+pub mod macros;
 pub mod model;
 pub mod plugins;
 pub mod proxy;
