@@ -5,11 +5,17 @@ use std::sync::Arc;
 use futures_util::StreamExt;
 use nyxproxy_core::decoder::{self, Codec, DecoderResult};
 use nyxproxy_core::history::HistoryEntry;
+use nyxproxy_core::intercept::InterceptEntry;
 use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
-use nyxproxy_core::model::CapturedResponse;
+use nyxproxy_core::macros::{run_macro, Macro, MacroRunResult};
+use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
+use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
 use nyxproxy_core::repeater::{self, RepeaterRequest};
+use nyxproxy_core::report::{self, Report};
+use nyxproxy_core::scanner::{self, Issue};
 use nyxproxy_core::sequencer::{self, SequencerReport};
+use nyxproxy_core::spider::{crawl as spider_crawl, SpiderConfig, SpiderHit};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
@@ -91,6 +97,42 @@ pub fn proxy_set_config(
     config: ProxyConfig,
 ) -> Result<(), String> {
     with_state(&state, |s| s.update_proxy_config(config))
+}
+
+#[tauri::command]
+pub fn intercept_list(state: State<'_, AppStateSlot>) -> Result<Vec<InterceptEntry>, String> {
+    with_state(&state, |s| s.proxy.intercept.list())
+}
+
+#[derive(serde::Deserialize)]
+pub struct InterceptForwardArgs {
+    pub id: String,
+    #[serde(default)]
+    pub request: Option<CapturedRequest>,
+    #[serde(default)]
+    pub body_b64: Option<String>,
+}
+
+#[tauri::command]
+pub fn intercept_forward(
+    state: State<'_, AppStateSlot>,
+    args: InterceptForwardArgs,
+) -> Result<bool, String> {
+    with_state(&state, |s| {
+        s.proxy
+            .intercept
+            .forward(&args.id, args.request, args.body_b64)
+    })
+}
+
+#[tauri::command]
+pub fn intercept_drop(state: State<'_, AppStateSlot>, id: String) -> Result<bool, String> {
+    with_state(&state, |s| s.proxy.intercept.drop(&id))
+}
+
+#[tauri::command]
+pub fn intercept_drop_all(state: State<'_, AppStateSlot>) -> Result<usize, String> {
+    with_state(&state, |s| s.proxy.intercept.drop_all())
 }
 
 #[tauri::command]
@@ -277,6 +319,164 @@ pub async fn ai_list_providers(
 ) -> Result<ProvidersResponse, String> {
     let client = with_state(&state, ai_client_from_state)?;
     client.providers().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn scanner_scan_history(state: State<'_, AppStateSlot>) -> Result<Vec<Issue>, String> {
+    with_state(&state, |s| {
+        let mut out = Vec::new();
+        for entry in s.history.list() {
+            out.extend(scanner::scan(&entry.flow));
+        }
+        out
+    })
+}
+
+#[tauri::command]
+pub fn scanner_scan_flow(
+    state: State<'_, AppStateSlot>,
+    flow_id: Uuid,
+) -> Result<Vec<Issue>, String> {
+    with_state(&state, |s| match s.history.get(flow_id) {
+        Some(entry) => scanner::scan(&entry.flow),
+        None => Vec::new(),
+    })
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SpiderStartArgs {
+    pub session_id: String,
+    pub config: SpiderConfig,
+}
+
+#[tauri::command]
+pub async fn spider_run(
+    app: AppHandle,
+    args: SpiderStartArgs,
+) -> Result<Vec<SpiderHit>, String> {
+    let event_name = format!("nyxproxy://spider/{}", args.session_id);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<SpiderHit>(64);
+    let app_emit = app.clone();
+    let event_for_task = event_name.clone();
+    let emitter = tokio::spawn(async move {
+        while let Some(hit) = rx.recv().await {
+            if let Err(err) = app_emit.emit(&event_for_task, &hit) {
+                tracing::warn!(?err, "spider emit failed");
+            }
+        }
+    });
+    let hits = spider_crawl(args.config, Some(tx)).await;
+    let _ = emitter.await;
+    let _ = app.emit(&format!("{event_name}/done"), &args.session_id);
+    Ok(hits)
+}
+
+#[tauri::command]
+pub fn report_build(state: State<'_, AppStateSlot>) -> Result<Report, String> {
+    with_state(&state, |s| {
+        let history = s.history.list();
+        let mut issues = Vec::new();
+        for entry in &history {
+            issues.extend(scanner::scan(&entry.flow));
+        }
+        report::build(&history, &issues)
+    })
+}
+
+#[tauri::command]
+pub fn report_render_html(report: Report) -> Result<String, String> {
+    Ok(report::render_html(&report))
+}
+
+#[tauri::command]
+pub fn report_render_json(report: Report) -> Result<String, String> {
+    Ok(report::render_json(&report))
+}
+
+#[tauri::command]
+pub fn plugins_list(state: State<'_, AppStateSlot>) -> Result<Vec<PluginDescriptor>, String> {
+    with_state(&state, |s| s.plugins.list())
+}
+
+#[tauri::command]
+pub fn plugins_reload(state: State<'_, AppStateSlot>) -> Result<Vec<PluginDescriptor>, String> {
+    let mgr = with_state(&state, |s| s.plugins.clone())?;
+    mgr.reload().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugins_set_enabled(
+    state: State<'_, AppStateSlot>,
+    id: String,
+    enabled: bool,
+) -> Result<bool, String> {
+    with_state(&state, |s| s.plugins.set_enabled(&id, enabled))
+}
+
+#[tauri::command]
+pub async fn plugins_scan_flow(
+    state: State<'_, AppStateSlot>,
+    id: String,
+    flow_id: Uuid,
+) -> Result<Vec<Issue>, String> {
+    let (mgr, flow) = with_state(&state, |s| {
+        (s.plugins.clone(), s.history.get(flow_id).map(|e| e.flow))
+    })?;
+    let Some(flow) = flow else {
+        return Err(format!("flow {flow_id} not found"));
+    };
+    mgr.scan_flow(&id, &flow).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn plugins_scan_history(
+    state: State<'_, AppStateSlot>,
+) -> Result<Vec<Issue>, String> {
+    let (mgr, flows) = with_state(&state, |s| {
+        let flows: Vec<_> = s.history.list().into_iter().map(|e| e.flow).collect();
+        (s.plugins.clone(), flows)
+    })?;
+    let mut out = Vec::new();
+    for flow in flows {
+        out.extend(mgr.scan_flow_all(&flow).await);
+    }
+    Ok(out)
+}
+
+#[tauri::command]
+pub fn macros_list(state: State<'_, AppStateSlot>) -> Result<Vec<Macro>, String> {
+    with_state(&state, |s| s.macros.list())
+}
+
+#[tauri::command]
+pub fn macros_save(state: State<'_, AppStateSlot>, macro_: Macro) -> Result<Macro, String> {
+    let store = with_state(&state, |s| s.macros.clone())?;
+    store.save(macro_).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn macros_delete(state: State<'_, AppStateSlot>, id: String) -> Result<bool, String> {
+    let store = with_state(&state, |s| s.macros.clone())?;
+    store.delete(&id).map_err(|e| e.to_string())
+}
+
+#[derive(serde::Deserialize)]
+pub struct MacroRunArgs {
+    pub id: String,
+    #[serde(default)]
+    pub variables: std::collections::HashMap<String, String>,
+}
+
+#[tauri::command]
+pub async fn macros_run(
+    state: State<'_, AppStateSlot>,
+    args: MacroRunArgs,
+) -> Result<MacroRunResult, String> {
+    let mac = with_state(&state, |s| s.macros.get(&args.id))?;
+    let Some(mac) = mac else {
+        return Err(format!("macro {} not found", args.id));
+    };
+    Ok(run_macro(&mac, args.variables).await)
 }
 
 #[tauri::command]

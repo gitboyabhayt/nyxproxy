@@ -30,6 +30,12 @@ pub enum NyxError {
     #[error("not found: {0}")]
     NotFound(String),
 
+    #[error("invalid: {0}")]
+    Invalid(String),
+
+    #[error("internal: {0}")]
+    Internal(String),
+
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
 

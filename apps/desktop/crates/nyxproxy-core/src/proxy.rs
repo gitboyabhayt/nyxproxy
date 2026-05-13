@@ -40,6 +40,7 @@ use tracing::{debug, error, info, warn};
 use crate::ca::CertAuthority;
 use crate::error::{NyxError, NyxResult};
 use crate::history::HistoryStore;
+use crate::intercept::{InterceptDecision, InterceptQueue};
 use crate::model::{CapturedRequest, CapturedResponse, HeaderEntry, HttpFlow, ProxyEvent};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +82,7 @@ pub struct Proxy {
     pub history: HistoryStore,
     pub config: Arc<RwLock<ProxyConfig>>,
     pub events: broadcast::Sender<ProxyEvent>,
+    pub intercept: InterceptQueue,
 }
 
 impl Proxy {
@@ -91,6 +93,7 @@ impl Proxy {
             history,
             config: Arc::new(RwLock::new(config)),
             events,
+            intercept: InterceptQueue::new(),
         }
     }
 
@@ -462,6 +465,21 @@ async fn forward_capture(
     captured: CapturedRequest,
     body: Vec<u8>,
 ) -> NyxResult<Response<Full<Bytes>>> {
+    let intercept_enabled = proxy.config.read().intercept_enabled;
+    let (captured, body) = if intercept_enabled {
+        match proxy.intercept.enqueue(captured, body).await {
+            InterceptDecision::Forward { request, body } => (request, body),
+            InterceptDecision::Drop => {
+                return Ok(error_response(
+                    StatusCode::GATEWAY_TIMEOUT,
+                    "request dropped by NyxProxy intercept",
+                ));
+            }
+        }
+    } else {
+        (captured, body)
+    };
+
     let mut flow = HttpFlow::new(captured.clone());
     flow.tags.push("proxy".into());
 

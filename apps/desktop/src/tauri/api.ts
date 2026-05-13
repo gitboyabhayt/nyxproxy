@@ -20,12 +20,17 @@ import type {
   HistoryEntry,
   IntruderAttempt,
   IntruderConfig,
+  InterceptEntry,
+  Issue,
   ProxyConfig,
   ProxyStatus,
   RepeaterRequest,
   CapturedResponse,
+  ReportPayload,
   SequencerReport,
   Settings,
+  SpiderConfig,
+  SpiderHit,
 } from "./types";
 
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -144,6 +149,61 @@ export const SettingsApi = {
   set: (settings: Settings) => invoke<void>("settings_set", { settings }),
 };
 
+export const CollaboratorApi = {
+  async createSession(backendUrl: string): Promise<import("./types").CollaboratorSession> {
+    const url = `${backendUrl.replace(/\/$/, "")}/collaborator/sessions`;
+    const res = await fetch(url, { method: "POST" });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as import("./types").CollaboratorSession;
+  },
+  async listPings(
+    backendUrl: string,
+    sessionId: string,
+  ): Promise<import("./types").CollaboratorPing[]> {
+    const url = `${backendUrl.replace(/\/$/, "")}/collaborator/sessions/${sessionId}/pings`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as import("./types").CollaboratorPing[];
+  },
+};
+
+export const MacrosApi = {
+  list: () => invoke<import("./types").Macro[]>("macros_list"),
+  save: (macro: import("./types").Macro) =>
+    invoke<import("./types").Macro>("macros_save", { macro_: macro }),
+  delete: (id: string) => invoke<boolean>("macros_delete", { id }),
+  run: (id: string, variables?: Record<string, string>) =>
+    invoke<import("./types").MacroRunResult>("macros_run", {
+      args: { id, variables: variables ?? {} },
+    }),
+};
+
+export const InterceptApi = {
+  list: () => invoke<InterceptEntry[]>("intercept_list"),
+  forward: (id: string, request?: import("./types").CapturedRequest, bodyB64?: string) =>
+    invoke<boolean>("intercept_forward", {
+      args: { id, request: request ?? null, body_b64: bodyB64 ?? null },
+    }),
+  drop: (id: string) => invoke<boolean>("intercept_drop", { id }),
+  dropAll: () => invoke<number>("intercept_drop_all"),
+};
+
+export const ScannerApi = {
+  scanHistory: () => invoke<Issue[]>("scanner_scan_history"),
+  scanFlow: (flowId: string) => invoke<Issue[]>("scanner_scan_flow", { flowId }),
+};
+
+export const SpiderApi = {
+  run: (sessionId: string, config: SpiderConfig) =>
+    invoke<SpiderHit[]>("spider_run", { args: { session_id: sessionId, config } }),
+};
+
+export const ReportApi = {
+  build: () => invoke<ReportPayload>("report_build"),
+  renderHtml: (report: ReportPayload) => invoke<string>("report_render_html", { report }),
+  renderJson: (report: ReportPayload) => invoke<string>("report_render_json", { report }),
+};
+
 /* ---------- Mock bridge for headless browser preview ---------- */
 
 function makeMockBridge(): TauriBridge {
@@ -229,6 +289,53 @@ function makeMockBridge(): TauriBridge {
         } as unknown as never;
       case "intruder_run":
         return [] as unknown as never;
+      case "intercept_list":
+        return [] as unknown as never;
+      case "intercept_forward":
+      case "intercept_drop":
+        return true as unknown as never;
+      case "intercept_drop_all":
+        return 0 as unknown as never;
+      case "scanner_scan_history":
+      case "scanner_scan_flow":
+        return [] as unknown as never;
+      case "plugins_list":
+      case "plugins_reload":
+      case "plugins_scan_flow":
+      case "plugins_scan_history":
+        return [] as unknown as never;
+      case "plugins_set_enabled":
+        return true as unknown as never;
+      case "macros_list":
+        return [] as unknown as never;
+      case "macros_save":
+        return (cmd === "macros_save" ? args?.macro_ : null) as unknown as never;
+      case "macros_delete":
+        return true as unknown as never;
+      case "macros_run":
+        return {
+          macro_id: ((args?.args as Record<string, unknown>)?.id as string) ?? "",
+          macro_name: "",
+          started_at: new Date().toISOString(),
+          steps: [],
+          final_variables: {},
+          succeeded: true,
+        } as unknown as never;
+      case "spider_run":
+        return [] as unknown as never;
+      case "report_build":
+        return {
+          generated_at: new Date().toISOString(),
+          flow_count: 0,
+          issue_count: 0,
+          by_severity: {},
+          flows: [],
+          issues: [],
+        } as unknown as never;
+      case "report_render_html":
+        return "<!doctype html><html><body>Mock report</body></html>" as unknown as never;
+      case "report_render_json":
+        return "{}" as unknown as never;
       case "ai_list_providers":
         return {
           default: "groq",

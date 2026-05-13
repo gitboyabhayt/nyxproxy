@@ -1,10 +1,15 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { RequestViewer } from "@/components/RequestViewer";
 import { SplitPane } from "@/components/SplitPane";
 import { formatBytes, statusBucket } from "@/lib/codec";
 import { useAppStore } from "@/state/store";
-import type { HistoryEntry } from "@/tauri/types";
+import { InterceptApi, listen } from "@/tauri/api";
+import type {
+  HistoryEntry,
+  InterceptEntry,
+  InterceptUpdate,
+} from "@/tauri/types";
 
 type SubTab = "intercept" | "history" | "ws" | "options";
 
@@ -48,28 +53,236 @@ export function ProxyPage() {
 function InterceptPanel() {
   const config = useAppStore((s) => s.proxy.config);
   const save = useAppStore((s) => s.saveProxyConfig);
+  const toast = useAppStore((s) => s.toast);
+  const [queue, setQueue] = useState<InterceptEntry[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [editBody, setEditBody] = useState<string>("");
+  const [editedBodies, setEditedBodies] = useState<Record<string, string>>({});
+
+  const refresh = async () => {
+    try {
+      setQueue(await InterceptApi.list());
+    } catch (err) {
+      toast("error", `Intercept list failed: ${err}`);
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+    let off: (() => void) | undefined;
+    listen<InterceptUpdate>("nyxproxy://intercept", (update) => {
+      if (update.type === "enqueued") {
+        setQueue((q) => (q.some((e) => e.id === update.id) ? q : [...q, update]));
+      } else if (update.type === "resolved") {
+        setQueue((q) => q.filter((e) => e.id !== update.id));
+        setEditedBodies((eb) => {
+          const next = { ...eb };
+          delete next[update.id];
+          return next;
+        });
+        if (selectedId === update.id) {
+          setSelectedId(null);
+          setEditBody("");
+        }
+      }
+    }).then((u) => (off = u));
+    return () => off?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const selected = useMemo(
+    () => queue.find((e) => e.id === selectedId) ?? queue[0] ?? null,
+    [queue, selectedId],
+  );
+
+  // Whenever the visible selection changes, reset the textarea to the queued
+  // body (decoded). If the user previously edited that entry, restore the
+  // pending edit.
+  useEffect(() => {
+    if (!selected) {
+      setEditBody("");
+      return;
+    }
+    const prior = editedBodies[selected.id];
+    if (prior !== undefined) {
+      setEditBody(prior);
+    } else {
+      setEditBody(atobSafe(selected.body_b64));
+    }
+  }, [selected, editedBodies]);
+
+  const setEditedBody = (val: string) => {
+    setEditBody(val);
+    if (selected) {
+      setEditedBodies((eb) => ({ ...eb, [selected.id]: val }));
+    }
+  };
+
+  const forward = async (id: string) => {
+    try {
+      const edited = editedBodies[id];
+      const b64 = edited !== undefined ? btoaSafe(edited) : undefined;
+      const ok = await InterceptApi.forward(id, undefined, b64);
+      if (!ok) toast("warning", "Entry already resolved.");
+    } catch (err) {
+      toast("error", `Forward failed: ${err}`);
+    }
+  };
+
+  const drop = async (id: string) => {
+    try {
+      await InterceptApi.drop(id);
+    } catch (err) {
+      toast("error", `Drop failed: ${err}`);
+    }
+  };
+
+  const dropAll = async () => {
+    try {
+      const n = await InterceptApi.dropAll();
+      toast("info", `Dropped ${n} pending request${n === 1 ? "" : "s"}.`);
+    } catch (err) {
+      toast("error", `Drop-all failed: ${err}`);
+    }
+  };
+
   return (
-    <div className="section" style={{ overflow: "auto" }}>
-      <div className="panel">
-        <div className="panel-header">Intercept queue</div>
-        <div className="panel-body" style={{ padding: 14 }}>
-          <div className="notice">
-            Toggle <strong>Intercept enabled</strong> to hold every flow until you forward or drop it. Phase 1 captures
-            every flow into history regardless — Intercept-on-hold lands in the very next milestone.
+    <SplitPane
+      storageKey="proxy-intercept"
+      initialSize={0.35}
+      first={
+        <div className="panel" style={{ height: "100%", borderRadius: 0, border: "none" }}>
+          <div className="toolbar" style={{ gap: 8 }}>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <input
+                type="checkbox"
+                checked={!!config?.intercept_enabled}
+                onChange={(e) =>
+                  config && save({ ...config, intercept_enabled: e.target.checked })
+                }
+              />
+              <span>Intercept enabled</span>
+            </label>
+            <button className="btn small ghost" onClick={refresh}>
+              Refresh
+            </button>
+            <button
+              className="btn small danger"
+              onClick={dropAll}
+              disabled={queue.length === 0}
+            >
+              Drop all
+            </button>
           </div>
-          <label style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 10 }}>
-            <input
-              type="checkbox"
-              checked={!!config?.intercept_enabled}
-              onChange={(e) =>
-                config && save({ ...config, intercept_enabled: e.target.checked })
-              }
-            />
-            <span>Intercept enabled</span>
-          </label>
+          <div className="panel-body" style={{ overflow: "auto" }}>
+            {queue.length === 0 ? (
+              <div className="empty-state">
+                <p>
+                  No pending requests. Toggle <strong>Intercept enabled</strong> and send
+                  traffic through the proxy — each request will appear here for review.
+                </p>
+              </div>
+            ) : (
+              queue.map((entry) => (
+                <div
+                  key={entry.id}
+                  className={`nav-item ${selectedId === entry.id ? "active" : ""}`}
+                  onClick={() => setSelectedId(entry.id)}
+                  style={{ alignItems: "flex-start", flexDirection: "column", gap: 2 }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, width: "100%" }}>
+                    <span className={`pill method-${entry.captured.method}`}>
+                      {entry.captured.method}
+                    </span>
+                    <span className="mono" style={{ flex: 1, fontSize: 12 }}>
+                      {entry.captured.authority}
+                    </span>
+                  </div>
+                  <span className="mono" style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                    {entry.captured.path}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
         </div>
-      </div>
-    </div>
+      }
+      second={
+        <div className="panel" style={{ height: "100%", borderRadius: 0, border: "none" }}>
+          <div className="panel-header">
+            {selected
+              ? `${selected.captured.method} ${selected.captured.authority}${selected.captured.path}`
+              : "Select a held request"}
+            <div style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
+              {selected && (
+                <>
+                  <button className="btn small primary" onClick={() => forward(selected.id)}>
+                    Forward
+                  </button>
+                  <button className="btn small danger" onClick={() => drop(selected.id)}>
+                    Drop
+                  </button>
+                </>
+              )}
+            </div>
+          </div>
+          <div className="panel-body" style={{ padding: 12, gap: 8, overflow: "auto" }}>
+            {!selected ? (
+              <div className="empty-state">
+                <p>Pick a request on the left to edit before forwarding.</p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <div className="label">URL</div>
+                  <code className="mono">{selected.captured.url}</code>
+                </div>
+                <div>
+                  <div className="label">Headers ({selected.captured.headers.length})</div>
+                  <pre className="code" style={{ maxHeight: 180, overflow: "auto" }}>
+                    {selected.captured.headers
+                      .map((h) => `${h.name}: ${h.value}`)
+                      .join("\n")}
+                  </pre>
+                </div>
+                <div style={{ flex: 1, display: "flex", flexDirection: "column" }}>
+                  <div className="label">
+                    Body (edit and click Forward to send the modified copy)
+                  </div>
+                  <textarea
+                    className="code-input"
+                    style={{ minHeight: 200, flex: 1 }}
+                    value={editBody}
+                    onChange={(e) => setEditedBody(e.target.value)}
+                  />
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      }
+    />
+  );
+}
+
+function atobSafe(b64: string): string {
+  try {
+    return decodeURIComponent(
+      atob(b64)
+        .split("")
+        .map((c) => "%" + c.charCodeAt(0).toString(16).padStart(2, "0"))
+        .join(""),
+    );
+  } catch {
+    return "";
+  }
+}
+
+function btoaSafe(s: string): string {
+  return btoa(
+    encodeURIComponent(s).replace(/%([0-9A-F]{2})/g, (_, h) =>
+      String.fromCharCode(parseInt(h, 16)),
+    ),
   );
 }
 
@@ -310,11 +523,4 @@ function OptionsPanel() {
   );
 }
 
-function atobSafe(b64: string): string {
-  if (!b64) return "";
-  try {
-    return atob(b64);
-  } catch {
-    return "";
-  }
-}
+

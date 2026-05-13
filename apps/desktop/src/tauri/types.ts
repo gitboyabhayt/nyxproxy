@@ -102,11 +102,13 @@ export interface RepeaterRequest {
   insecure: boolean;
 }
 
-export type IntruderAttack = "sniper";
+export type IntruderAttack = "sniper" | "battering_ram" | "pitchfork" | "cluster_bomb";
 
 export interface IntruderConfig {
   template: CapturedRequest;
-  payloads: string[];
+  /** One payload set per marker position. Sniper / battering-ram only use
+   *  the first set; pitchfork / cluster-bomb expect one set per position. */
+  payload_sets: string[][];
   attack: IntruderAttack;
   concurrency: number;
   insecure: boolean;
@@ -114,7 +116,7 @@ export interface IntruderConfig {
 
 export interface IntruderAttempt {
   index: number;
-  payload: string;
+  payloads: string[];
   status: number | null;
   response_length: number | null;
   elapsed_ms: number;
@@ -198,4 +200,131 @@ export interface Settings {
   backend_token: string | null;
   default_ai_provider: string;
   theme: string;
+}
+
+export type IssueSeverity = "info" | "low" | "medium" | "high" | "critical";
+export type IssueConfidence = "tentative" | "firm" | "certain";
+
+export interface Issue {
+  id: string;
+  flow_id: string;
+  rule_id: string;
+  name: string;
+  severity: IssueSeverity;
+  confidence: IssueConfidence;
+  description: string;
+  evidence: string | null;
+  remediation: string | null;
+  host: string;
+  path: string;
+}
+
+export interface SpiderConfig {
+  seed_url: string;
+  scope_hosts: string[];
+  max_depth: number;
+  max_urls: number;
+  concurrency: number;
+  follow_robots: boolean;
+  insecure: boolean;
+}
+
+export interface SpiderHit {
+  url: string;
+  depth: number;
+  status: number | null;
+  content_type: string | null;
+  bytes: number | null;
+  elapsed_ms: number;
+  linked_count: number;
+  error: string | null;
+}
+
+export interface ReportPayload {
+  generated_at: string;
+  flow_count: number;
+  issue_count: number;
+  by_severity: Record<string, number>;
+  flows: HistoryEntry[];
+  issues: Issue[];
+}
+
+export type InterceptKind = "request" | "response";
+export type InterceptDecisionKind = "forward" | "drop";
+
+export interface InterceptEntry {
+  id: string;
+  kind: InterceptKind;
+  captured: CapturedRequest;
+  body_b64: string;
+  enqueued_at: string;
+}
+
+export type InterceptUpdate =
+  | ({ type: "enqueued" } & InterceptEntry)
+  | {
+      type: "resolved";
+      id: string;
+      decision: InterceptDecisionKind;
+    };
+
+export interface CollaboratorPing {
+  timestamp: number;
+  method: string;
+  path: string;
+  query: string;
+  remote_addr: string | null;
+  headers: Record<string, string>;
+  body_preview: string;
+  body_size: number;
+}
+
+export type ExtractionSource = "header" | "json_pointer" | "body_regex" | "cookie";
+
+export interface Extraction {
+  name: string;
+  source: ExtractionSource;
+  pattern: string;
+}
+
+export interface MacroStep {
+  id: string;
+  name: string;
+  request: import("./types").RepeaterRequest;
+  extractions: Extraction[];
+}
+
+export interface Macro {
+  id: string;
+  name: string;
+  description: string;
+  steps: MacroStep[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface MacroStepResult {
+  step_id: string;
+  step_name: string;
+  request: import("./types").RepeaterRequest;
+  response: CapturedResponse | null;
+  extracted: Record<string, string>;
+  duration_ms: number;
+  error: string | null;
+}
+
+export interface MacroRunResult {
+  macro_id: string;
+  macro_name: string;
+  started_at: string;
+  steps: MacroStepResult[];
+  final_variables: Record<string, string>;
+  succeeded: boolean;
+}
+
+export interface CollaboratorSession {
+  session_id: string;
+  created_at: number;
+  polling_url: string;
+  pings: CollaboratorPing[];
 }

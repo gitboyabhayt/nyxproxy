@@ -12,7 +12,9 @@ import {
   ListTree,
   type LucideIcon,
   Plug,
+  PlaySquare,
   Radio,
+  Radar,
   Repeat,
   Settings as SettingsIcon,
   Shield,
@@ -20,12 +22,14 @@ import {
 
 import { Toasts } from "@/components/Toasts";
 import { AiAssistantPage } from "@/pages/AiAssistant";
+import { CollaboratorPage } from "@/pages/Collaborator";
 import { ComparerPage } from "@/pages/Comparer";
 import { DashboardPage } from "@/pages/Dashboard";
 import { DecoderPage } from "@/pages/Decoder";
 import { ExtenderPage } from "@/pages/Extender";
 import { IntruderPage } from "@/pages/Intruder";
 import { LoggerPage } from "@/pages/Logger";
+import { MacrosPage } from "@/pages/Macros";
 import { ProjectOptionsPage } from "@/pages/ProjectOptions";
 import { ProxyPage } from "@/pages/Proxy";
 import { RepeaterPage } from "@/pages/Repeater";
@@ -45,6 +49,8 @@ type Page =
   | "comparer"
   | "logger"
   | "extender"
+  | "collaborator"
+  | "macros"
   | "ai"
   | "project-options"
   | "user-options";
@@ -68,6 +74,8 @@ const NAV: NavEntry[] = [
   { id: "comparer", label: "Comparer", icon: ArrowLeftRight, group: "tools" },
   { id: "logger", label: "Logger", icon: AlignLeft, group: "tools" },
   { id: "extender", label: "Extender", icon: Plug, group: "tools" },
+  { id: "collaborator", label: "Collaborator", icon: Radar, group: "tools" },
+  { id: "macros", label: "Macros", icon: PlaySquare, group: "tools" },
   { id: "ai", label: "AI Assistant", icon: Brain, group: "tools" },
   { id: "project-options", label: "Project options", icon: SettingsIcon, group: "options" },
   { id: "user-options", label: "User options", icon: KeySquare, group: "options" },
@@ -116,6 +124,10 @@ export function App() {
         return <LoggerPage />;
       case "extender":
         return <ExtenderPage />;
+      case "collaborator":
+        return <CollaboratorPage />;
+      case "macros":
+        return <MacrosPage />;
       case "ai":
         return <AiAssistantPage />;
       case "project-options":
@@ -133,7 +145,7 @@ export function App() {
         <div className="brand">
           <div className="logo" />
           <span>NyxProxy</span>
-          <span style={{ color: "var(--text-muted)", fontSize: 11 }}>0.1.0 · Phase 1</span>
+          <span style={{ color: "var(--text-muted)", fontSize: 11 }}>0.1.0 · Phase 1-5</span>
         </div>
         <div className={`status-pill ${running ? "running" : ""}`}>
           <span className="dot" />
