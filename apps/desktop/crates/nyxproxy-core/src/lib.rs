@@ -22,6 +22,7 @@ pub mod history;
 pub mod intercept;
 pub mod intruder;
 pub mod model;
+pub mod plugins;
 pub mod proxy;
 pub mod repeater;
 pub mod report;

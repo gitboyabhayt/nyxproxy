@@ -8,6 +8,7 @@ use nyxproxy_core::history::HistoryEntry;
 use nyxproxy_core::intercept::InterceptEntry;
 use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
 use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
+use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
 use nyxproxy_core::repeater::{self, RepeaterRequest};
 use nyxproxy_core::report::{self, Report};
@@ -389,6 +390,56 @@ pub fn report_render_html(report: Report) -> Result<String, String> {
 #[tauri::command]
 pub fn report_render_json(report: Report) -> Result<String, String> {
     Ok(report::render_json(&report))
+}
+
+#[tauri::command]
+pub fn plugins_list(state: State<'_, AppStateSlot>) -> Result<Vec<PluginDescriptor>, String> {
+    with_state(&state, |s| s.plugins.list())
+}
+
+#[tauri::command]
+pub fn plugins_reload(state: State<'_, AppStateSlot>) -> Result<Vec<PluginDescriptor>, String> {
+    let mgr = with_state(&state, |s| s.plugins.clone())?;
+    mgr.reload().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn plugins_set_enabled(
+    state: State<'_, AppStateSlot>,
+    id: String,
+    enabled: bool,
+) -> Result<bool, String> {
+    with_state(&state, |s| s.plugins.set_enabled(&id, enabled))
+}
+
+#[tauri::command]
+pub async fn plugins_scan_flow(
+    state: State<'_, AppStateSlot>,
+    id: String,
+    flow_id: Uuid,
+) -> Result<Vec<Issue>, String> {
+    let (mgr, flow) = with_state(&state, |s| {
+        (s.plugins.clone(), s.history.get(flow_id).map(|e| e.flow))
+    })?;
+    let Some(flow) = flow else {
+        return Err(format!("flow {flow_id} not found"));
+    };
+    mgr.scan_flow(&id, &flow).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn plugins_scan_history(
+    state: State<'_, AppStateSlot>,
+) -> Result<Vec<Issue>, String> {
+    let (mgr, flows) = with_state(&state, |s| {
+        let flows: Vec<_> = s.history.list().into_iter().map(|e| e.flow).collect();
+        (s.plugins.clone(), flows)
+    })?;
+    let mut out = Vec::new();
+    for flow in flows {
+        out.extend(mgr.scan_flow_all(&flow).await);
+    }
+    Ok(out)
 }
 
 #[tauri::command]

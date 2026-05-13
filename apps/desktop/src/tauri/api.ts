@@ -288,6 +288,13 @@ function makeMockBridge(): TauriBridge {
       case "scanner_scan_history":
       case "scanner_scan_flow":
         return [] as unknown as never;
+      case "plugins_list":
+      case "plugins_reload":
+      case "plugins_scan_flow":
+      case "plugins_scan_history":
+        return [] as unknown as never;
+      case "plugins_set_enabled":
+        return true as unknown as never;
       case "spider_run":
         return [] as unknown as never;
       case "report_build":

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::Result;
 use nyxproxy_core::ca::CertAuthority;
 use nyxproxy_core::history::HistoryStore;
+use nyxproxy_core::plugins::PluginManager;
 use nyxproxy_core::proxy::{Proxy, ProxyConfig, ProxyHandle};
 use parking_lot::Mutex;
 use tauri::{AppHandle, Emitter};
@@ -20,6 +21,7 @@ pub struct AppState {
     pub proxy: Proxy,
     pub proxy_handle: Arc<Mutex<Option<ProxyHandle>>>,
     pub settings: SettingsStore,
+    pub plugins: PluginManager,
 }
 
 impl AppState {
@@ -55,6 +57,12 @@ impl AppState {
             }
         });
 
+        let plugins_dir = data_dir.join("plugins");
+        let plugins = PluginManager::new(&plugins_dir);
+        if let Err(err) = plugins.reload() {
+            tracing::warn!(?err, "plugins: initial load failed");
+        }
+
         Ok(Self {
             data_dir,
             ca,
@@ -62,6 +70,7 @@ impl AppState {
             proxy,
             proxy_handle: Arc::new(Mutex::new(None)),
             settings,
+            plugins,
         })
     }
 

@@ -1,0 +1,9 @@
+{
+  "id": "example-wordpress",
+  "name": "WordPress fingerprint",
+  "version": "0.1.0",
+  "description": "Flags responses that smell like a WordPress installation (wp-content/wp-includes/wp-login.php, x-pingback header, generator meta).",
+  "author": "NyxProxy",
+  "command": ["python3", "main.py"],
+  "capabilities": ["scan_flow"]
+}

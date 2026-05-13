@@ -85,6 +85,11 @@ pub fn run() {
             commands::report_build,
             commands::report_render_html,
             commands::report_render_json,
+            commands::plugins_list,
+            commands::plugins_reload,
+            commands::plugins_set_enabled,
+            commands::plugins_scan_flow,
+            commands::plugins_scan_history,
             commands::settings_get,
             commands::settings_set,
         ])
