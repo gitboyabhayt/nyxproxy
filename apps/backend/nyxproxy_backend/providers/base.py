@@ -132,7 +132,9 @@ def parse_openai_chat_response(
         else:
             raise ProviderError(provider_name, "no string content in upstream response")
 
-    finish_reason = first.get("finish_reason") if isinstance(first.get("finish_reason"), str) else None
+    finish_reason = (
+        first.get("finish_reason") if isinstance(first.get("finish_reason"), str) else None
+    )
 
     usage_payload = body.get("usage") if isinstance(body.get("usage"), dict) else None
     usage = None

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlignLeft,
@@ -11,6 +11,7 @@ import {
   KeySquare,
   ListTree,
   type LucideIcon,
+  Menu,
   Plug,
   PlaySquare,
   Radio,
@@ -91,6 +92,7 @@ export function App() {
   const historyCount = useAppStore((s) => s.history.length);
 
   const [page, setPage] = useState<Page>("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     init();
@@ -99,13 +101,18 @@ export function App() {
   const running = proxyStatus?.running ?? false;
   const listen = proxyStatus?.listen_addr ?? "—";
 
+  const navigate = useCallback((next: Page) => {
+    setPage(next);
+    setSidebarOpen(false);
+  }, []);
+
   const tools = useMemo(() => NAV.filter((n) => n.group === "tools"), []);
   const options = useMemo(() => NAV.filter((n) => n.group === "options"), []);
 
   const body = useMemo(() => {
     switch (page) {
       case "dashboard":
-        return <DashboardPage onNavigate={setPage} />;
+        return <DashboardPage onNavigate={navigate} />;
       case "target":
         return <TargetPage />;
       case "proxy":
@@ -137,14 +144,21 @@ export function App() {
       default:
         return null;
     }
-  }, [page]);
+  }, [page, navigate]);
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="title-bar">
+        <button
+          className="menu-toggle"
+          aria-label="Toggle navigation"
+          onClick={() => setSidebarOpen((v) => !v)}
+        >
+          <Menu size={16} />
+        </button>
         <div className="brand">
           <div className="logo" />
-          <span>NyxProxy</span>
+          <span className="brand-text">NyxProxy</span>
           <span style={{ color: "var(--text-muted)", fontSize: 11 }}>0.1.0 · Phase 1-5</span>
         </div>
         <div className={`status-pill ${running ? "running" : ""}`}>
@@ -160,6 +174,12 @@ export function App() {
         </button>
       </div>
 
+      <div
+        className="sidebar-scrim"
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
       <div className="sidebar">
         <div className="nav-section">Tools</div>
         {tools.map((n) => {
@@ -171,7 +191,8 @@ export function App() {
             <div
               key={n.id}
               className={`nav-item ${active ? "active" : ""}`}
-              onClick={() => setPage(n.id)}
+              onClick={() => navigate(n.id)}
+              title={n.label}
             >
               <Icon size={16} />
               <span>{n.label}</span>
@@ -192,7 +213,8 @@ export function App() {
             <div
               key={n.id}
               className={`nav-item ${active ? "active" : ""}`}
-              onClick={() => setPage(n.id)}
+              onClick={() => navigate(n.id)}
+              title={n.label}
             >
               <Icon size={16} />
               <span>{n.label}</span>
@@ -222,7 +244,9 @@ export function App() {
         <span style={{ color: "var(--border-strong)" }}>·</span>
         <span>{running ? `Running on ${listen}` : "Idle"}</span>
         <div style={{ flex: 1 }} />
-        <span>Phase 1 build — proxy core, AI gateway, full GUI</span>
+        <span>
+          Phase 1–5 build · proxy · scanner · intruder · macros · plugins · AI
+        </span>
       </div>
 
       <Toasts />

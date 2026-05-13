@@ -7,6 +7,7 @@
  * webview.
  */
 
+import { DEFAULT_BACKEND_URL } from "@/lib/backend";
 import type {
   AiAnalyzeRequestBody,
   AiAnalyzeResponse,
@@ -218,7 +219,7 @@ function makeMockBridge(): TauriBridge {
   };
   let settings: Settings = {
     proxy: proxyConfig,
-    backend_url: "http://127.0.0.1:8765",
+    backend_url: DEFAULT_BACKEND_URL,
     backend_token: null,
     default_ai_provider: "groq",
     theme: "dark",

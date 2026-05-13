@@ -67,7 +67,10 @@ def test_payloads_endpoint(respx_mock, authed_client: TestClient) -> None:
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": "' OR 1=1--\n\"><script>1</script>"},
+                        "message": {
+                            "role": "assistant",
+                            "content": "' OR 1=1--\n\"><script>1</script>",
+                        },
                         "finish_reason": "stop",
                     }
                 ],

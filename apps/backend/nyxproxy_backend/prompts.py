@@ -14,9 +14,7 @@ def _format_headers(headers: dict[str, str]) -> str:
 def render_request(req: HttpRequestPayload) -> str:
     body = req.body if req.body is not None else ""
     return (
-        f"{req.method} {req.url} {req.http_version}\n"
-        f"{_format_headers(req.headers)}\n\n"
-        f"{body}"
+        f"{req.method} {req.url} {req.http_version}\n{_format_headers(req.headers)}\n\n{body}"
     ).strip()
 
 
@@ -24,11 +22,7 @@ def render_response(resp: HttpResponsePayload | None) -> str:
     if resp is None:
         return "(no response captured)"
     body = resp.body if resp.body is not None else ""
-    return (
-        f"{resp.http_version} {resp.status}\n"
-        f"{_format_headers(resp.headers)}\n\n"
-        f"{body}"
-    ).strip()
+    return (f"{resp.http_version} {resp.status}\n{_format_headers(resp.headers)}\n\n{body}").strip()
 
 
 EXPLAIN_SYSTEM = (

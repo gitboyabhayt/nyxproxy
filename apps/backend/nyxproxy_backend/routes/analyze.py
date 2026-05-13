@@ -24,7 +24,9 @@ def _provider(request: Request, name: str | None) -> tuple[str, object]:
     return provider_name, provider
 
 
-async def _run(request: Request, name: str | None, model: str | None, prompt: list[dict[str, str]]) -> AnalyzeResponse:
+async def _run(
+    request: Request, name: str | None, model: str | None, prompt: list[dict[str, str]]
+) -> AnalyzeResponse:
     provider_name, provider = _provider(request, name)
     messages = [ChatMessage(role=m["role"], content=m["content"]) for m in prompt]  # type: ignore[arg-type]
     try:

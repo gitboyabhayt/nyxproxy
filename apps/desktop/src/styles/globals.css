@@ -98,8 +98,9 @@ code,
 
 /* App layout primitives */
 .app {
+  --sidebar-width: 220px;
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: 36px 1fr 24px;
   grid-template-areas:
     "title  title"
@@ -107,6 +108,30 @@ code,
     "status  status";
   height: 100vh;
   width: 100vw;
+}
+
+/* Sidebar toggle button — only visible on narrow screens. */
+.title-bar .menu-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-right: 4px;
+}
+
+.title-bar .menu-toggle:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.sidebar-scrim {
+  display: none;
+  position: fixed;
+  inset: 36px 0 24px 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 19;
 }
 
 .title-bar {
@@ -702,4 +727,246 @@ textarea.code-input {
   border-radius: 3px;
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* ============================================================== */
+/* Responsive breakpoints                                          */
+/* ============================================================== */
+
+/* Tablet & narrow laptop — slim the sidebar and tighten paddings. */
+@media (max-width: 1200px) {
+  .app {
+    --sidebar-width: 184px;
+  }
+
+  .sidebar .nav-item {
+    padding: 6px 12px;
+    font-size: 12.5px;
+  }
+
+  .sidebar .nav-section {
+    padding: 8px 12px 3px;
+  }
+
+  .section {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+}
+
+/* Tablet portrait — collapse to icon rail. */
+@media (max-width: 960px) {
+  .app {
+    --sidebar-width: 56px;
+  }
+
+  .sidebar .nav-item {
+    padding: 8px 0;
+    justify-content: center;
+    gap: 0;
+    border-left: none;
+    border-right: 2px solid transparent;
+  }
+
+  .sidebar .nav-item.active {
+    border-right-color: var(--accent);
+  }
+
+  .sidebar .nav-item span:not(.badge) {
+    display: none;
+  }
+
+  .sidebar .nav-item .badge {
+    display: none;
+  }
+
+  .sidebar .nav-section {
+    text-align: center;
+    padding: 8px 0 3px;
+    font-size: 9px;
+  }
+
+  .title-bar .brand span:not(.brand-text) {
+    /* keep the version label visible */
+  }
+
+  .title-bar .status-pill span:last-child {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .section {
+    padding: 12px 14px;
+  }
+
+  .cards {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .kv {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .kv .k {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}
+
+/* Phone / very narrow — sidebar becomes an overlay drawer. */
+@media (max-width: 720px) {
+  .app {
+    --sidebar-width: 0px;
+    grid-template-columns: 1fr;
+    grid-template-rows: 40px 1fr 24px;
+    grid-template-areas:
+      "title"
+      "main"
+      "status";
+  }
+
+  .title-bar {
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .title-bar .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .title-bar .brand span:first-of-type {
+    /* keep brand text only */
+  }
+
+  .title-bar .filler {
+    flex: 1;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 40px;
+    bottom: 24px;
+    left: 0;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    z-index: 20;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .app.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .app.sidebar-open .sidebar-scrim {
+    display: block;
+  }
+
+  .sidebar .nav-item {
+    padding: 9px 14px;
+    justify-content: flex-start;
+    gap: 10px;
+    border-right: none;
+    border-left: 2px solid transparent;
+  }
+
+  .sidebar .nav-item.active {
+    border-left-color: var(--accent);
+    border-right-color: transparent;
+  }
+
+  .sidebar .nav-item span:not(.badge),
+  .sidebar .nav-item .badge {
+    display: inline-flex;
+  }
+
+  .sidebar .nav-section {
+    text-align: left;
+    padding: 10px 12px 4px;
+    font-size: 10px;
+  }
+
+  .main {
+    grid-area: main;
+  }
+
+  .sub-tabs {
+    overflow-x: auto;
+  }
+
+  .sub-tab,
+  .main-tabs .tab {
+    padding: 8px 12px;
+    flex-shrink: 0;
+  }
+
+  .section {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  /* SplitPane: stack vertically on phones so each pane has full width. */
+  .split:not(.vertical) {
+    flex-direction: column;
+  }
+
+  .split:not(.vertical) > .split-pane {
+    flex-basis: auto !important;
+    min-height: 200px;
+  }
+
+  .split:not(.vertical) > .split-divider {
+    display: none;
+  }
+
+  .status-bar {
+    font-size: 10.5px;
+    gap: 8px;
+    padding: 0 8px;
+    overflow: hidden;
+  }
+
+  .status-bar > :nth-child(n + 5) {
+    display: none;
+  }
+}
+
+/* Pointer-coarse devices (touch) — bigger split divider grab targets. */
+@media (pointer: coarse) {
+  .split-divider {
+    flex: 0 0 8px;
+  }
+
+  .split.vertical > .split-divider {
+    flex: 0 0 8px;
+  }
+}
+
+/* Honour user's reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
 }

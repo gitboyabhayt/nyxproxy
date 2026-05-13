@@ -76,12 +76,12 @@ class GeminiProvider(Provider):
         parts = content_block.get("parts") or []
         if not isinstance(parts, list):
             raise ProviderError(self.name, "malformed parts list")
-        text = "".join(
-            part.get("text", "") for part in parts if isinstance(part, dict)
-        )
+        text = "".join(part.get("text", "") for part in parts if isinstance(part, dict))
         return self._make_response(
             self.name,
             chosen_model,
             text,
-            finish_reason=first.get("finishReason") if isinstance(first.get("finishReason"), str) else None,
+            finish_reason=first.get("finishReason")
+            if isinstance(first.get("finishReason"), str)
+            else None,
         )

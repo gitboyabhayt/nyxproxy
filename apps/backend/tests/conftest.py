@@ -10,7 +10,6 @@ from fastapi.testclient import TestClient
 from nyxproxy_backend.config import Settings, get_settings
 from nyxproxy_backend.main import create_app
 
-
 _PROVIDER_KEYS = (
     "GROQ_API_KEY",
     "OPENROUTER_API_KEY",
