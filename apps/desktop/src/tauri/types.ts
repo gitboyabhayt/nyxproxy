@@ -440,3 +440,97 @@ export interface WsSession {
   close_reason: string | null;
   frame_count: number;
 }
+
+// ---- AI auto-attack / chained scan / fuzz mutator (PR #6) ----
+
+export type VulnClass =
+  | "sqli"
+  | "xss"
+  | "ssrf"
+  | "lfi"
+  | "rce"
+  | "open_redirect"
+  | "ssti"
+  | "xxe"
+  | "auth_bypass"
+  | "idor"
+  | "csrf"
+  | "jwt"
+  | "deserialization"
+  | "graphql_injection"
+  | "nosql"
+  | "log4shell"
+  | "prototype_pollution"
+  | "race_condition";
+
+export type AttackLocation = "query" | "body" | "header" | "cookie" | "path";
+
+export type Severity = "info" | "low" | "medium" | "high" | "critical";
+
+export interface AttackPayload {
+  payload: string;
+  rationale: string;
+  exploitability: number;
+}
+
+export interface AttackVector {
+  vuln: VulnClass;
+  parameter: string;
+  location: AttackLocation;
+  severity: Severity;
+  payloads: AttackPayload[];
+}
+
+export interface AutoAttackPlan {
+  summary: string;
+  vectors: AttackVector[];
+  provider: string;
+  model: string;
+  fallbacks_tried: string[];
+}
+
+export interface FuzzMutation {
+  payload: string;
+  technique: string;
+  bypasses: string[];
+}
+
+export interface FuzzMutateResponse {
+  mutations: FuzzMutation[];
+  provider: string;
+  model: string;
+  fallbacks_tried: string[];
+}
+
+export interface ChainScanStep {
+  kind: "passive" | "active" | "report";
+  title: string;
+  issues: string[];
+  payloads_used: string[];
+  notes: string;
+}
+
+export interface ChainScanResponse {
+  summary: string;
+  risk_score: number;
+  steps: ChainScanStep[];
+  next_actions: string[];
+  provider: string;
+  model: string;
+  fallbacks_tried: string[];
+}
+
+export interface HttpRequestPayload {
+  method: string;
+  url: string;
+  http_version: string;
+  headers: Record<string, string>;
+  body: string | null;
+}
+
+export interface HttpResponsePayload {
+  status: number;
+  http_version: string;
+  headers: Record<string, string>;
+  body: string | null;
+}
