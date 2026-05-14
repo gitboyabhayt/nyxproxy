@@ -21,6 +21,7 @@ import {
   Shield,
 } from "lucide-react";
 
+import { CommandPalette, type PaletteCommand } from "@/components/CommandPalette";
 import { Toasts } from "@/components/Toasts";
 import { AiAssistantPage } from "@/pages/AiAssistant";
 import { CollaboratorPage } from "@/pages/Collaborator";
@@ -93,6 +94,7 @@ export function App() {
 
   const [page, setPage] = useState<Page>("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     init();
@@ -108,6 +110,46 @@ export function App() {
 
   const tools = useMemo(() => NAV.filter((n) => n.group === "tools"), []);
   const options = useMemo(() => NAV.filter((n) => n.group === "options"), []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (e.key === "Escape" && paletteOpen) {
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [paletteOpen]);
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const nav: PaletteCommand[] = NAV.map((n) => ({
+      id: `goto-${n.id}`,
+      label: `Go to ${n.label}`,
+      group: n.group === "tools" ? "Navigate" : "Options",
+      keywords: [n.id, n.label],
+      run: () => navigate(n.id),
+    }));
+    const actions: PaletteCommand[] = [
+      {
+        id: "action-start-proxy",
+        label: running ? "Stop proxy" : "Start proxy",
+        group: "Proxy",
+        shortcut: running ? "" : "",
+        run: () => (running ? stopProxy() : startProxy()),
+      },
+      {
+        id: "action-toggle-sidebar",
+        label: sidebarOpen ? "Close sidebar" : "Open sidebar",
+        group: "View",
+        run: () => setSidebarOpen((v) => !v),
+      },
+    ];
+    return [...nav, ...actions];
+  }, [navigate, running, startProxy, stopProxy, sidebarOpen]);
 
   const body = useMemo(() => {
     switch (page) {
@@ -250,6 +292,11 @@ export function App() {
       </div>
 
       <Toasts />
+      <CommandPalette
+        open={paletteOpen}
+        commands={paletteCommands}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }

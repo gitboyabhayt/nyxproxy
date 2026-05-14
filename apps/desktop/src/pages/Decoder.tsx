@@ -2,8 +2,14 @@ import { useState } from "react";
 
 import { SplitPane } from "@/components/SplitPane";
 import { useAppStore } from "@/state/store";
-import { DecoderApi } from "@/tauri/api";
-import type { Codec, DecoderSmartResult } from "@/tauri/types";
+import { DecoderApi, JwtApi } from "@/tauri/api";
+import type {
+  Codec,
+  DecoderSmartResult,
+  JwtBruteResult,
+  JwtDecoded,
+  JwtFinding,
+} from "@/tauri/types";
 
 const CODECS: Array<{ id: Codec; label: string }> = [
   { id: "base64", label: "Base64" },
@@ -17,7 +23,34 @@ const CODECS: Array<{ id: Codec; label: string }> = [
   { id: "zstd", label: "Zstandard" },
 ];
 
+type Tab = "codecs" | "jwt";
+
 export function DecoderPage() {
+  const [tab, setTab] = useState<Tab>("codecs");
+  return (
+    <div className="panel" style={{ height: "100%", border: "none", borderRadius: 0 }}>
+      <div className="panel-header" style={{ gap: 8 }}>
+        <button
+          className={`btn small ${tab === "codecs" ? "primary" : "ghost"}`}
+          onClick={() => setTab("codecs")}
+        >
+          Codecs
+        </button>
+        <button
+          className={`btn small ${tab === "jwt" ? "primary" : "ghost"}`}
+          onClick={() => setTab("jwt")}
+        >
+          JWT toolkit
+        </button>
+      </div>
+      <div className="panel-body" style={{ padding: 0, overflow: "hidden" }}>
+        {tab === "codecs" ? <CodecsTab /> : <JwtTab />}
+      </div>
+    </div>
+  );
+}
+
+function CodecsTab() {
   const toast = useAppStore((s) => s.toast);
   const [input, setInput] = useState("");
   const [output, setOutput] = useState("");
@@ -97,6 +130,209 @@ export function DecoderPage() {
       }
     />
   );
+}
+
+const DEFAULT_TOKEN =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
+
+const TOP_SECRETS = [
+  "secret",
+  "password",
+  "admin",
+  "test",
+  "your-256-bit-secret",
+  "changeme",
+  "p@ssw0rd",
+  "qwerty",
+  "letmein",
+  "default",
+];
+
+function JwtTab() {
+  const toast = useAppStore((s) => s.toast);
+  const [token, setToken] = useState(DEFAULT_TOKEN);
+  const [decoded, setDecoded] = useState<JwtDecoded | null>(null);
+  const [findings, setFindings] = useState<JwtFinding[]>([]);
+  const [secret, setSecret] = useState("your-256-bit-secret");
+  const [bruteList, setBruteList] = useState(TOP_SECRETS.join("\n"));
+  const [bruteResult, setBruteResult] = useState<JwtBruteResult | null>(null);
+
+  const onDecode = async () => {
+    try {
+      const d = await JwtApi.decode(token.trim());
+      setDecoded(d);
+      const f = await JwtApi.analyze(token.trim());
+      setFindings(f);
+    } catch (err) {
+      toast("error", `JWT decode failed: ${err}`);
+      setDecoded(null);
+      setFindings([]);
+    }
+  };
+
+  const onResign = async () => {
+    if (!decoded) return;
+    try {
+      const next = await JwtApi.encodeHs256(decoded.header, decoded.payload, secret);
+      setToken(next);
+      toast("info", "Re-signed token written to input.");
+    } catch (err) {
+      toast("error", `JWT encode failed: ${err}`);
+    }
+  };
+
+  const onAlgNone = async () => {
+    if (!decoded) return;
+    try {
+      const next = await JwtApi.encodeNone(decoded.header, decoded.payload);
+      setToken(next);
+      toast("warning", "Generated alg=none token (test target acceptance).");
+    } catch (err) {
+      toast("error", `JWT encode failed: ${err}`);
+    }
+  };
+
+  const onBrute = async () => {
+    try {
+      const candidates = bruteList
+        .split(/\r?\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const r = await JwtApi.bruteHs256(token.trim(), candidates);
+      setBruteResult(r);
+      if (r.secret) toast("info", `Found secret: ${r.secret}`);
+      else toast("warning", `Tried ${r.tried} candidates, no match.`);
+    } catch (err) {
+      toast("error", `Brute force failed: ${err}`);
+    }
+  };
+
+  return (
+    <SplitPane
+      storageKey="decoder-jwt"
+      initialSize={0.5}
+      first={
+        <div className="panel" style={{ height: "100%", border: "none", borderRadius: 0 }}>
+          <div className="panel-header">Token</div>
+          <div className="toolbar">
+            <button className="btn primary" onClick={onDecode}>
+              Decode & analyse
+            </button>
+            <button className="btn" onClick={onResign} disabled={!decoded}>
+              Re-sign HS256
+            </button>
+            <button className="btn danger" onClick={onAlgNone} disabled={!decoded}>
+              alg=none
+            </button>
+          </div>
+          <div className="panel-body" style={{ padding: 10, gap: 10 }}>
+            <textarea
+              className="code-input"
+              style={{ minHeight: 120 }}
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="Paste a JSON Web Token (header.payload.signature)…"
+            />
+            <label style={{ fontSize: 12, color: "var(--text-muted)" }}>
+              HS256 secret (used when re-signing)
+            </label>
+            <input
+              value={secret}
+              onChange={(e) => setSecret(e.target.value)}
+              placeholder="secret"
+              spellCheck={false}
+            />
+            <details>
+              <summary style={{ cursor: "pointer", fontSize: 12, color: "var(--text-muted)" }}>
+                Brute-force HS256 secret
+              </summary>
+              <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
+                <textarea
+                  className="code-input"
+                  style={{ minHeight: 100 }}
+                  value={bruteList}
+                  onChange={(e) => setBruteList(e.target.value)}
+                  placeholder="One candidate per line. Top-10 weak secrets pre-filled."
+                />
+                <div>
+                  <button className="btn" onClick={onBrute}>
+                    Run brute force
+                  </button>
+                </div>
+                {bruteResult && (
+                  <div className="banner info">
+                    Tried {bruteResult.tried} · {bruteResult.elapsed_ms} ms ·{" "}
+                    {bruteResult.secret
+                      ? `secret = ${bruteResult.secret}`
+                      : "no match"}
+                  </div>
+                )}
+              </div>
+            </details>
+          </div>
+        </div>
+      }
+      second={
+        <div className="panel" style={{ height: "100%", border: "none", borderRadius: 0 }}>
+          <div className="panel-header">Decoded</div>
+          <div className="panel-body" style={{ padding: 10, overflow: "auto", gap: 10 }}>
+            {!decoded ? (
+              <div style={{ color: "var(--text-muted)", fontSize: 12 }}>
+                Press <b>Decode &amp; analyse</b> to inspect the token.
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>HEADER</div>
+                <pre className="code" style={{ margin: 0 }}>
+                  {JSON.stringify(decoded.header, null, 2)}
+                </pre>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>PAYLOAD</div>
+                <pre className="code" style={{ margin: 0 }}>
+                  {JSON.stringify(decoded.payload, null, 2)}
+                </pre>
+                <div style={{ fontSize: 11, color: "var(--text-muted)" }}>SIGNATURE</div>
+                <pre className="code" style={{ margin: 0, wordBreak: "break-all" }}>
+                  {decoded.signature_b64 || "(empty — alg=none)"}
+                </pre>
+                {findings.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+                      FINDINGS ({findings.length})
+                    </div>
+                    {findings.map((f, i) => (
+                      <div key={i} className={`banner ${severityToBanner(f.severity)}`}>
+                        <b>{labelKind(f.kind)}</b> — {f.detail}
+                      </div>
+                    ))}
+                  </>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      }
+    />
+  );
+}
+
+function severityToBanner(sev: JwtFinding["severity"]): string {
+  switch (sev) {
+    case "high":
+      return "error";
+    case "medium":
+      return "warning";
+    case "low":
+      return "info";
+    default:
+      return "info";
+  }
+}
+
+function labelKind(kind: JwtFinding["kind"]): string {
+  return kind
+    .split("_")
+    .map((s) => s.charAt(0).toUpperCase() + s.slice(1))
+    .join(" ");
 }
 
 function SmartResultsTable({

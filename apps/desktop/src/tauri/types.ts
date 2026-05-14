@@ -328,3 +328,75 @@ export interface CollaboratorSession {
   polling_url: string;
   pings: CollaboratorPing[];
 }
+
+// ---------------------------------------------------------------------------
+// JWT toolkit (Feature Q)
+// ---------------------------------------------------------------------------
+
+export interface JwtDecoded {
+  header: Record<string, unknown>;
+  payload: Record<string, unknown>;
+  signature_b64: string;
+  signing_input: string;
+}
+
+export type JwtFindingKind =
+  | "alg_none"
+  | "weak_algorithm"
+  | "missing_exp"
+  | "expired_token"
+  | "long_lived_token"
+  | "kid_injection"
+  | "jku_jwk_header"
+  | "rsa_hmac_confusion";
+
+export type JwtSeverity = "info" | "low" | "medium" | "high";
+
+export interface JwtFinding {
+  kind: JwtFindingKind;
+  severity: JwtSeverity;
+  detail: string;
+}
+
+export interface JwtBruteResult {
+  tried: number;
+  secret: string | null;
+  elapsed_ms: number;
+}
+
+// ---------------------------------------------------------------------------
+// Risk / OWASP enrichment (Features O + HH)
+// ---------------------------------------------------------------------------
+
+export interface IssueRisk {
+  rule_id: string;
+  score: number;
+  owasp_code: string;
+  owasp_title: string;
+}
+
+export interface OwaspBucket {
+  code: string;
+  title: string;
+  count: number;
+  max_score: number;
+}
+
+export interface RiskSummary {
+  aggregate: number;
+  by_owasp: OwaspBucket[];
+}
+
+// ---------------------------------------------------------------------------
+// Workspaces (Feature D)
+// ---------------------------------------------------------------------------
+
+export interface Workspace {
+  name: string;
+  notes: string;
+  scope: string[];
+  history: HistoryEntry[];
+  issues: Issue[];
+  saved_at: string;
+  app_version: string;
+}
