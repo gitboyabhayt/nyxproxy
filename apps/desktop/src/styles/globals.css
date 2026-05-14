@@ -1093,3 +1093,173 @@ textarea.code-input {
     padding-top: 6vh;
   }
 }
+
+/* ---- WebSockets page (Feature A) ---- */
+
+.ws-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr 320px;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ws-sessions {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--bg-panel);
+  overflow: auto;
+}
+
+.ws-sessions h3 { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); }
+.ws-sessions .muted { font-size: 12px; color: var(--text-muted); }
+
+.ws-session-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ws-session-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.ws-session-item:hover { background: var(--bg-deep); }
+.ws-session-item.active { border-color: var(--accent); background: var(--bg-deep); }
+.ws-session-host { font-weight: 600; font-size: 12px; }
+.ws-session-meta { font-size: 10.5px; color: var(--text-muted); }
+.ws-session-url {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-frames-pane {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  min-height: 0;
+}
+
+.ws-session-banner {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ws-session-banner .muted { font-size: 10.5px; color: var(--text-muted); }
+
+.ws-frames-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+.ws-frames-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ws-frames-table th,
+.ws-frames-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ws-frames-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-deep);
+  font-weight: 600;
+  color: var(--text-muted);
+  z-index: 1;
+}
+.ws-row { cursor: pointer; }
+.ws-row:hover { background: var(--bg-deep); }
+.ws-row.selected { background: var(--bg-deep); outline: 1px solid var(--accent); }
+.ws-preview {
+  max-width: 0;
+  width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.ws-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 3px;
+}
+
+.ws-frames-foot {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.ws-detail-pane {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--bg-panel);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ws-detail-pane h3 { margin: 0; font-size: 12px; color: var(--text-muted); }
+.ws-detail { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ws-payload {
+  background: var(--bg-deep);
+  padding: 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ws-replay { display: flex; flex-direction: column; gap: 6px; }
+.ws-replay-row { display: flex; gap: 6px; }
+.ws-replay select,
+.ws-replay textarea {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.ws-replay textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+.ws-empty { padding: 24px; text-align: center; }
+
+@media (max-width: 1200px) {
+  .ws-layout { grid-template-columns: 200px 1fr 280px; }
+}
+@media (max-width: 960px) {
+  .ws-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .ws-sessions { max-height: 160px; }
+  .ws-detail-pane { max-height: 280px; }
+}

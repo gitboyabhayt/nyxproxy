@@ -48,6 +48,7 @@ Each feature listed here has a dedicated guide explaining what it does, how to u
 
 | Feature | Page | Doc |
 |---|---|---|
+| **WebSocket viewer & replay** *(new in PR #5)* | WebSockets | [websockets.md](websockets.md) |
 | **Hotkey palette (Ctrl + K)** *(new in PR #4)* | Global | [hotkeys.md](hotkeys.md) |
 | **Project workspaces** *(new in PR #4)* | Project options | [workspaces.md](workspaces.md) |
 | **OWASP / risk scoring** *(new in PR #4)* | Logger badges | [risk-scoring.md](risk-scoring.md) |
@@ -62,7 +63,7 @@ These features are tracked in the roadmap but not yet shipped — see `ROADMAP.m
 
 | Feature | Target PR |
 |---|---|
-| WebSocket viewer + replay (A) | #5 |
+| ~~WebSocket viewer + replay (A)~~ — **landed in PR #5** | done |
 | Recorded Playwright macros (B) | #7 |
 | AI auto-attack mode (C) | #6 |
 | Burp `.burp` import (E) | #10 |
