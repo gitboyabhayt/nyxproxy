@@ -123,6 +123,18 @@ pub fn run() {
             commands::compliance_render_html_cmd,
             commands::compliance_render_md_cmd,
             commands::open_embedded_browser_cmd,
+            commands::selfhost_render_cmd,
+            commands::selfhost_write_cmd,
+            commands::share_seal_cmd,
+            commands::share_unseal_cmd,
+            commands::monitor_upsert_cmd,
+            commands::monitor_list_cmd,
+            commands::monitor_remove_cmd,
+            commands::monitor_complete_run_cmd,
+            commands::monitor_runs_cmd,
+            commands::owasp_dashboard_cmd,
+            commands::write_bytes_cmd,
+            commands::read_bytes_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NyxProxy");

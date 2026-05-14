@@ -53,6 +53,10 @@ Each feature listed here has a dedicated guide explaining what it does, how to u
 | **Hotkey palette (Ctrl + K)** *(new in PR #4)* | Global | [hotkeys.md](hotkeys.md) |
 | **Project workspaces** *(new in PR #4)* | Project options | [workspaces.md](workspaces.md) |
 | **OWASP / risk scoring** *(new in PR #4)* | Logger badges | [risk-scoring.md](risk-scoring.md) |
+| **Live OWASP Top-10 dashboard** *(new in batch 3)* | OWASP dashboard | [owasp-dashboard.md](owasp-dashboard.md) |
+| **Continuous monitoring** *(new in batch 3)* | Monitor | [monitor.md](monitor.md) |
+| **Self-hosting wizard** *(new in batch 3)* | Project options | [self-host.md](self-host.md) |
+| **Encrypted evidence packs (`.nyxshare`)** *(new in batch 3)* | Project options | [nyxshare.md](nyxshare.md) |
 | **CVE / CWE mapping** *(new in PR #4)* | Backend (`/findings/map-cve`) | [cve-mapping.md](cve-mapping.md) |
 | Test backend connection | User options | [backend-test.md](backend-test.md) |
 | Responsive layout | Global | [responsive.md](responsive.md) |
@@ -83,9 +87,9 @@ These features are tracked in the roadmap but not yet shipped — see `ROADMAP.m
 | Web shell sandbox (U) | #10 |
 | AI-narrated PoC video (V) | #9 |
 | In-app chat (X) | #7 |
-| Self-hosting wizard (Y) | #10 |
+| ~~Self-hosting wizard (Y)~~ — **landed in batch 3** | done |
 | AI prompt marketplace (Z) | #8 |
-| Continuous monitoring (AA) | #9 |
+| ~~Continuous monitoring (AA)~~ — **landed in batch 3** | done |
 | OpenAPI auto-tests (BB) | #9 |
 | Encrypted cloud backups (CC) | #7 |
 | Embedded browser (DD) | #5 |
