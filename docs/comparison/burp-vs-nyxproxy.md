@@ -2,7 +2,7 @@
 
 > **Scope of this document.** A point-by-point comparison of NyxProxy (this repo, current `main`) against **Burp Suite Community 2024.x** and **Burp Suite Professional 2024.x**. Every "Yes" entry for NyxProxy is backed by a code path on `main`; every "Partial" is called out honestly with the gap.
 
-Last updated: May 2026 against `main` at commit `e14669d`.
+Last updated: May 2026 after batch 3 (`devin/1778757151-batch3-features`). See also: `docs/NEXT-SESSION-PROMPT.md` for the roadmap of the remaining 20 features.
 
 ## TL;DR
 
@@ -26,12 +26,12 @@ The rest of this doc is the actual feature matrix.
 | Intercepting HTTP/1.1 proxy | Yes | Yes | **Yes** — `crates/nyxproxy-core/src/proxy.rs` (hyper + rustls) |
 | HTTPS interception with on-the-fly CA | Yes | Yes | **Yes** — `crates/nyxproxy-core/src/ca.rs`, rcgen-based, key permissions `0600` |
 | WebSocket interception + replay | Yes (read-only in Community) | Yes (read + edit + resend) | **Yes** — `crates/nyxproxy-core/src/websocket.rs` (RFC 6455, full edit + resend) |
-| HTTP/2 in proxy core | Yes | Yes | **Partial** — code path exists for upstream via reqwest; client-side MITM uses HTTP/1.1 only. *Tracked as a known gap.* |
-| HTTP/3 / QUIC | No | No | No — roadmap item G |
+| HTTP/2 in proxy core | Yes | Yes | **Yes** — ALPN-negotiated `h2` server in `crates/.../proxy.rs`; falls back to `http/1.1` when the client doesn't offer `h2`. See `docs/features/http2.md`. |
+| HTTP/3 / QUIC | No | No | **No (architectural)** — CONNECT tunnels are TCP-only; QUIC needs UDP. Same limitation as Burp Pro. NyxProxy strips `Alt-Svc` to prevent browsers from bypassing the proxy via HTTP/3 advertisements. |
 | Throttling, latency injection | No | Match/Replace + Bandwidth profile (Pro only) | **Partial** — match/replace via plugin API (`crates/nyxproxy-core/src/plugins.rs`); bandwidth profile not yet shipped |
 | Match-and-replace rules | Yes | Yes (richer) | **Partial** — via plugin API; dedicated UI not yet shipped |
 | HTTP-only mode / SOCKS chain | SOCKS upstream | SOCKS upstream | No — roadmap |
-| Mobile proxy with auto-cert install | Manual | Manual | No — roadmap S |
+| Mobile proxy with auto-cert install | Manual | Manual | No — roadmap S (next-session batch 5) |
 
 ## 2 · Repeater / Comparer / Decoder
 
@@ -74,7 +74,7 @@ The rest of this doc is the actual feature matrix.
 | Site map | Yes | Yes | **Yes** — `pages/Target.tsx` |
 | Scope (include / exclude) | Yes | Yes | **Yes** |
 | Spider / crawler (respects robots.txt) | No | Yes | **Yes** — `crates/.../spider.rs` (async BFS) |
-| Recorded login replay for authenticated spider | No | Yes | **Partial** — `crates/.../macros.rs` (manual chain); Playwright recording is roadmap B |
+| Recorded login replay for authenticated spider | No | Yes | **Partial** — `crates/.../macros.rs` (manual chain); Playwright recording is roadmap B (next-session batch 4) |
 
 ## 6 · Sequencer
 
@@ -87,7 +87,7 @@ The rest of this doc is the actual feature matrix.
 | Feature | Burp Community | Burp Professional | NyxProxy |
 | --- | --- | --- | --- |
 | Embedded scripting | Bambdas (Java DSL) | Bambdas + BApps (Java/Python) | **JS via boa_engine** in `crates/.../plugins.rs` |
-| Plugin marketplace | BApp Store | BApp Store | No — roadmap **NyxStore (P)** |
+| Plugin marketplace | BApp Store | BApp Store | No — roadmap **NyxStore (P)** (next-session batch 5) |
 | Out-of-process plugin host | No | No | **Yes** — see commit `36ebfbd` (Phase 4) |
 | Plugin sandboxing | None (JVM-level) | None | **Yes** — boa_engine is sandboxed JS; `on_request` / `on_response` hooks |
 
@@ -97,7 +97,7 @@ The rest of this doc is the actual feature matrix.
 | --- | --- | --- | --- |
 | Recorded request chains | Yes (basic) | Yes (rich) | **Yes** — `crates/.../macros.rs` (variable extraction) |
 | Variable extraction across requests | Yes | Yes | **Yes** |
-| Playwright / browser-recorded login | No | Manual via Burp Browser | No — roadmap B |
+| Playwright / browser-recorded login | No | Manual via Burp Browser | No — roadmap B (next-session batch 4) |
 
 ## 9 · Reporting
 
@@ -107,7 +107,7 @@ The rest of this doc is the actual feature matrix.
 | HTML export | No | Yes | **Yes** |
 | PDF export | No | Yes | **Yes** |
 | OWASP Top 10 / CWE in report body | No | Yes | **Yes** |
-| Compliance templates (PCI / ISO / SOC 2) | No | Add-on (Enterprise) | No — roadmap II |
+| Compliance templates (PCI / ISO / SOC 2) | No | Add-on (Enterprise) | **Yes** — `crates/.../compliance.rs` + UI page; PCI-DSS, ISO 27001, SOC 2, HIPAA, GDPR templates |
 
 ## 10 · AI
 
@@ -129,22 +129,26 @@ The rest of this doc is the actual feature matrix.
 | Hotkey / command palette | No | No | **Yes** — Ctrl+K, `docs/features/hotkeys.md` |
 | Responsive layout (720px → 4K) | Partial | Partial | **Yes** — `pages/*.tsx` + `styles/*.css` |
 | Browser-only preview / mock IPC | n/a | n/a | **Yes** — `npm run dev` |
-| In-app embedded Chromium with proxy pre-configured | No | **Yes (Burp's Embedded Browser)** | No — roadmap DD |
+| In-app embedded Chromium with proxy pre-configured | No | **Yes (Burp's Embedded Browser)** | **Yes** — Tauri `embedded_browser_cmd`, see `docs/features/embedded-browser.md` |
 
 ## 12 · Project / Workspace
 
 | Feature | Burp Community | Burp Professional | NyxProxy |
 | --- | --- | --- | --- |
 | Save / load full session | **No** (this is the biggest Community limitation) | Yes — `.burp` project files | **Yes** — `.nyxproxy` (zstd, magic `NYXPRJ`), `crates/.../workspace.rs` |
-| Import existing `.burp` project | n/a | n/a | No — roadmap E |
-| Cloud sync of workspace | No | No | No — roadmap F (Supabase optional) |
-| Encrypted cloud backups | No | No | No — roadmap CC |
+| Import existing `.burp` project | n/a | n/a | **Yes** — `crates/.../burp_import.rs`, Project options panel, `docs/features/burp-import.md` |
+| Cloud sync of workspace | No | No | No — roadmap F (next-session batch 4) |
+| Encrypted **local** evidence packs | No | No | **Yes** — `crates/.../nyxshare.rs` (ChaCha20-Poly1305 + Argon2id), `docs/features/nyxshare.md` |
+| Encrypted cloud backups | No | No | No — roadmap CC (next-session batch 6) |
+| Self-hosting wizard (Docker bundle generator) | n/a | n/a | **Yes** — `crates/.../selfhost.rs`, `docs/features/self-host.md` |
 
 ## 13 · Collaboration
 
 | Feature | Burp Community | Burp Professional | NyxProxy |
 | --- | --- | --- | --- |
-| Multi-user live session | No | No (Burp Enterprise has separate model) | No — roadmap J (WebRTC) |
+| Multi-user live session | No | No (Burp Enterprise has separate model) | No — roadmap J (next-session batch 4) |
+| Continuous monitoring with baseline diff | No | No | **Yes** — `crates/.../monitor.rs`, `docs/features/monitor.md` |
+| Live OWASP Top-10 dashboard vs industry baseline | No | No | **Yes** — `crates/.../owasp_dashboard.rs`, `docs/features/owasp-dashboard.md` |
 | In-app chat / threads per finding | No | No | No — roadmap X |
 
 ## 14 · Distribution / Install

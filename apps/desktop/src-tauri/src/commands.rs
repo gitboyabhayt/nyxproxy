@@ -3,14 +3,23 @@
 use std::sync::Arc;
 
 use futures_util::StreamExt;
+use nyxproxy_core::burp_import::{self, BurpImportSummary};
+use nyxproxy_core::compliance::{self, ComplianceFramework, ComplianceReport};
 use nyxproxy_core::decoder::{self, Codec, DecoderResult};
+use nyxproxy_core::graphql::{self, GraphQLAttackCase, GraphQLSchema};
+use nyxproxy_core::pcap;
 use nyxproxy_core::history::HistoryEntry;
 use nyxproxy_core::intercept::InterceptEntry;
 use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
 use nyxproxy_core::jwt::{self, JwtBruteResult, JwtDecoded, JwtFinding};
 use nyxproxy_core::macros::{run_macro, Macro, MacroRunResult};
 use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
+use nyxproxy_core::monitor::{Cadence, MonitorRunRecord, MonitorSchedule};
+use nyxproxy_core::nyxshare::{self, ShareManifest, SharePayload};
+use nyxproxy_core::openapi::{self, OpenApiPlan};
 use nyxproxy_core::owasp::{self, OwaspCategory};
+use nyxproxy_core::owasp_dashboard::{self, OwaspDashboard};
+use nyxproxy_core::selfhost::{self, SelfHostBundle, SelfHostConfig};
 use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
 use nyxproxy_core::repeater::{self, RepeaterRequest};
@@ -676,6 +685,51 @@ pub fn workspace_load_cmd(path: String) -> Result<Workspace, String> {
     workspace::load_from_path(&path).map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------------------
+// Burp Suite XML import (Feature E)
+// ---------------------------------------------------------------------------
+
+/// Import a Burp Suite "Save items" XML export from disk. Reads the file at
+/// `path`, parses every `<item>`, and appends each request/response pair into
+/// the live [`HistoryStore`] tagged with `import:burp`.
+///
+/// Returns a [`BurpImportSummary`] describing how many items were seen,
+/// imported, and skipped, plus the Burp version embedded in the file.
+#[tauri::command]
+pub fn burp_import_cmd(
+    state: State<'_, AppStateSlot>,
+    path: String,
+) -> Result<BurpImportSummary, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let (flows, summary) =
+        burp_import::parse_burp_xml(&bytes).map_err(|e| format!("parse burp xml: {e}"))?;
+    with_state(&state, |s| {
+        for flow in flows {
+            s.history.insert(flow);
+        }
+    })?;
+    Ok(summary)
+}
+
+// ---------------------------------------------------------------------------
+// OpenAPI / Swagger auto-test generator (Feature BB)
+// ---------------------------------------------------------------------------
+
+/// Parse an OpenAPI / Swagger document and return an [`OpenApiPlan`] of
+/// generated auth-bypass / IDOR / rate-limit test cases.
+///
+/// `path` is read from disk. `base_override` lets the caller substitute the
+/// spec's `servers[0].url` (or Swagger 2 host+basePath) so the same spec can
+/// be aimed at staging vs production without modification.
+#[tauri::command]
+pub fn openapi_build_plan_cmd(
+    path: String,
+    base_override: Option<String>,
+) -> Result<OpenApiPlan, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    openapi::build_plan(&bytes, base_override.as_deref()).map_err(|e| e.to_string())
+}
+
 // silence "unused" lint when OwaspCategory is only used transitively
 #[allow(dead_code)]
 fn _owasp_keepalive() -> OwaspCategory {
@@ -740,4 +794,351 @@ pub fn ws_replay(state: State<'_, AppStateSlot>, args: WsReplayArgs) -> Result<(
             .replay(id, args.direction, args.opcode, bytes)
     })?
     .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL native (Feature R)
+// ---------------------------------------------------------------------------
+
+/// Return the list of history flows that look like GraphQL requests.
+#[tauri::command]
+pub fn graphql_list_endpoints(state: State<'_, AppStateSlot>) -> Result<Vec<String>, String> {
+    with_state(&state, |s| {
+        let mut urls: Vec<String> = s
+            .history
+            .list()
+            .into_iter()
+            .filter(|e| graphql::is_graphql_request(&e.flow))
+            .map(|e| e.flow.request.url.clone())
+            .collect();
+        urls.sort();
+        urls.dedup();
+        urls
+    })
+}
+
+/// Return the canonical introspection query string.
+#[tauri::command]
+pub fn graphql_introspection_query() -> Result<String, String> {
+    Ok(graphql::introspection_query().to_string())
+}
+
+/// Parse a JSON introspection response body into a structured schema.
+#[tauri::command]
+pub fn graphql_parse_introspection(body: String) -> Result<GraphQLSchema, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("invalid JSON: {e}"))?;
+    graphql::parse_introspection(&value).map_err(|e| e.to_string())
+}
+
+/// Build a deterministic GraphQL attack plan. `schema_json` is optional —
+/// when provided, the alias-overload case uses an actual query-type field
+/// instead of `__typename`.
+#[tauri::command]
+pub fn graphql_build_attack_plan(
+    schema_json: Option<String>,
+) -> Result<Vec<GraphQLAttackCase>, String> {
+    let schema: Option<GraphQLSchema> = match schema_json {
+        Some(s) if !s.trim().is_empty() => {
+            Some(serde_json::from_str(&s).map_err(|e| format!("invalid schema JSON: {e}"))?)
+        }
+        _ => None,
+    };
+    Ok(graphql::build_attack_plan(schema.as_ref()))
+}
+
+// ---------------------------------------------------------------------------
+// PCAP export (Feature GG)
+// ---------------------------------------------------------------------------
+
+/// Export the current history (or a filtered subset) as a libpcap file.
+/// `flow_ids` is optional — when empty, every flow is exported.
+#[tauri::command]
+pub fn pcap_export_cmd(
+    state: State<'_, AppStateSlot>,
+    path: String,
+    flow_ids: Option<Vec<String>>,
+) -> Result<usize, String> {
+    let bytes = with_state(&state, |s| {
+        let mut flows: Vec<_> = s.history.list().into_iter().map(|e| e.flow).collect();
+        if let Some(ids) = &flow_ids {
+            let allow: std::collections::HashSet<&String> = ids.iter().collect();
+            flows.retain(|f| allow.contains(&f.id.to_string()));
+        }
+        flows
+    })?;
+    let count = bytes.len();
+    let out = pcap::write_pcap(&bytes).map_err(|e| e.to_string())?;
+    std::fs::write(&path, out).map_err(|e| format!("write {path}: {e}"))?;
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Compliance reports (Feature II)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComplianceBuildArgs {
+    pub issues: Vec<Issue>,
+    pub frameworks: Vec<ComplianceFramework>,
+}
+
+#[tauri::command]
+pub fn compliance_build_cmd(args: ComplianceBuildArgs) -> Result<ComplianceReport, String> {
+    Ok(compliance::build_report(&args.issues, &args.frameworks))
+}
+
+#[tauri::command]
+pub fn compliance_render_html_cmd(report: ComplianceReport) -> Result<String, String> {
+    Ok(compliance::render_html(&report))
+}
+
+#[tauri::command]
+pub fn compliance_render_md_cmd(report: ComplianceReport) -> Result<String, String> {
+    Ok(compliance::render_markdown(&report))
+}
+
+// ---------------------------------------------------------------------------
+// Embedded Chromium browser (Feature DD)
+// ---------------------------------------------------------------------------
+
+/// Open a new Tauri webview window pre-configured to route through the
+/// NyxProxy listener. The browser uses the OS's webview (WebKitGTK on
+/// Linux, WebView2 on Windows, WKWebView on macOS) — all three respect
+/// the per-webview proxy URL we pass them.
+///
+/// `target_url` is the page to open. `proxy_url` overrides the
+/// `http://host:port` we route through; when omitted we use the proxy's
+/// current listen address.
+#[tauri::command]
+pub async fn open_embedded_browser_cmd(
+    app: AppHandle,
+    state: State<'_, AppStateSlot>,
+    target_url: String,
+    proxy_url: Option<String>,
+) -> Result<String, String> {
+    let listen = with_state(&state, |s| s.proxy.snapshot_config().listen_addr.clone())?;
+    let proxy = proxy_url.unwrap_or_else(|| format!("http://{listen}"));
+    let target = url::Url::parse(&target_url).map_err(|e| format!("bad target URL: {e}"))?;
+    let proxy_parsed = url::Url::parse(&proxy).map_err(|e| format!("bad proxy URL: {e}"))?;
+    let label = format!("nyx-browser-{}", uuid::Uuid::new_v4().simple());
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        label.clone(),
+        tauri::WebviewUrl::External(target),
+    )
+    .title(format!("NyxProxy Browser — proxy {proxy}"))
+    .inner_size(1280.0, 800.0)
+    .proxy_url(proxy_parsed)
+    .build()
+    .map_err(|e| format!("create webview: {e}"))?;
+    Ok(label)
+}
+
+// ---------------------------------------------------------------------------
+// Self-hosting wizard (Feature Y)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHostRenderArgs {
+    pub config: SelfHostConfig,
+}
+
+#[tauri::command]
+pub fn selfhost_render_cmd(args: SelfHostRenderArgs) -> Result<SelfHostBundle, String> {
+    Ok(selfhost::render(&args.config))
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHostWriteArgs {
+    pub config: SelfHostConfig,
+    pub output_dir: String,
+}
+
+#[tauri::command]
+pub fn selfhost_write_cmd(args: SelfHostWriteArgs) -> Result<Vec<String>, String> {
+    let bundle = selfhost::render(&args.config);
+    let dir = std::path::PathBuf::from(&args.output_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
+    let mut written = Vec::new();
+    let mut write = |name: &str, body: &str| -> Result<(), String> {
+        let p = dir.join(name);
+        std::fs::write(&p, body).map_err(|e| format!("write {name}: {e}"))?;
+        written.push(p.display().to_string());
+        Ok(())
+    };
+    write("Dockerfile", &bundle.dockerfile)?;
+    write("docker-compose.yml", &bundle.compose)?;
+    write(".env.example", &bundle.env_example)?;
+    if let Some(caddy) = &bundle.caddyfile {
+        write("Caddyfile", caddy)?;
+    }
+    write("README.md", &bundle.readme)?;
+    Ok(written)
+}
+
+// ---------------------------------------------------------------------------
+// .nyxshare encrypted evidence packs (Leapfrog #8)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareCreateArgs {
+    pub password: String,
+    pub note: String,
+    pub flow_ids: Vec<String>,
+    pub issues: Vec<Issue>,
+}
+
+#[tauri::command]
+pub fn share_seal_cmd(
+    state: State<'_, AppStateSlot>,
+    args: ShareCreateArgs,
+) -> Result<Vec<u8>, String> {
+    use chrono::Utc;
+    let history = with_state(&state, |s| s.history.clone())?;
+    let all = history.list();
+    let wanted: std::collections::HashSet<String> = args.flow_ids.into_iter().collect();
+    let flows: Vec<_> = all
+        .into_iter()
+        .filter(|e| wanted.is_empty() || wanted.contains(&e.flow.id.to_string()))
+        .map(|e| e.flow.clone())
+        .collect();
+    let manifest = ShareManifest {
+        created_at: Utc::now().to_rfc3339(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        note: args.note,
+        flow_count: flows.len(),
+        issue_count: args.issues.len(),
+    };
+    let payload = SharePayload {
+        manifest,
+        flows,
+        issues: args.issues,
+    };
+    nyxshare::seal(&payload, &args.password).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareOpenArgs {
+    pub password: String,
+    pub bytes: Vec<u8>,
+}
+
+#[tauri::command]
+pub fn share_unseal_cmd(args: ShareOpenArgs) -> Result<SharePayload, String> {
+    nyxshare::unseal(&args.bytes, &args.password).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Continuous monitoring (Feature AA)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorCreateArgs {
+    pub name: String,
+    pub target_url: String,
+    pub scope_hosts: Vec<String>,
+    pub cadence: Cadence,
+}
+
+#[tauri::command]
+pub fn monitor_upsert_cmd(
+    state: State<'_, AppStateSlot>,
+    args: MonitorCreateArgs,
+) -> Result<MonitorSchedule, String> {
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let sched = MonitorSchedule::new(args.name, args.target_url, args.scope_hosts, args.cadence);
+    mon.lock().upsert(sched.clone());
+    with_state(&state, |s| s.persist_monitor())?;
+    Ok(sched)
+}
+
+#[tauri::command]
+pub fn monitor_list_cmd(state: State<'_, AppStateSlot>) -> Result<Vec<MonitorSchedule>, String> {
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let v = mon.lock().list();
+    Ok(v)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorIdArgs {
+    pub id: String,
+}
+
+#[tauri::command]
+pub fn monitor_remove_cmd(
+    state: State<'_, AppStateSlot>,
+    args: MonitorIdArgs,
+) -> Result<(), String> {
+    let id = uuid::Uuid::parse_str(&args.id).map_err(|e| format!("bad id: {e}"))?;
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    mon.lock().remove(id);
+    with_state(&state, |s| s.persist_monitor())?;
+    Ok(())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorRunCompleteArgs {
+    pub schedule_id: String,
+    pub issues: Vec<Issue>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn monitor_complete_run_cmd(
+    state: State<'_, AppStateSlot>,
+    args: MonitorRunCompleteArgs,
+) -> Result<Option<MonitorRunRecord>, String> {
+    use chrono::Utc;
+    let id = uuid::Uuid::parse_str(&args.schedule_id).map_err(|e| format!("bad id: {e}"))?;
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let now = Utc::now();
+    let rec = mon
+        .lock()
+        .complete_run(id, now, now, &args.issues, args.error);
+    with_state(&state, |s| s.persist_monitor())?;
+    Ok(rec)
+}
+
+#[tauri::command]
+pub fn monitor_runs_cmd(state: State<'_, AppStateSlot>) -> Result<Vec<MonitorRunRecord>, String> {
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let v = mon.lock().runs.clone();
+    Ok(v)
+}
+
+// ---------------------------------------------------------------------------
+// Live OWASP Top-10 dashboard (Leapfrog #6)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwaspDashboardArgs {
+    pub issues: Vec<Issue>,
+}
+
+#[tauri::command]
+pub fn owasp_dashboard_cmd(args: OwaspDashboardArgs) -> Result<OwaspDashboard, String> {
+    Ok(owasp_dashboard::build(&args.issues))
+}
+
+#[tauri::command]
+pub fn write_bytes_cmd(path: String, bytes: Vec<u8>) -> Result<usize, String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(&path).map_err(|e| format!("create: {e}"))?;
+    f.write_all(&bytes).map_err(|e| format!("write: {e}"))?;
+    Ok(bytes.len())
+}
+
+#[tauri::command]
+pub fn read_bytes_cmd(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("read: {e}"))
 }

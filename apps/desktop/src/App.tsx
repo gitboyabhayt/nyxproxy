@@ -6,8 +6,13 @@ import {
   Brain,
   Code2,
   Crosshair,
+  FileCheck2,
+  FileJson,
   FileSearch,
   Gauge,
+  Globe,
+  ChartBar,
+  Clock,
   KeySquare,
   ListTree,
   type LucideIcon,
@@ -35,6 +40,11 @@ import { ExtenderPage } from "@/pages/Extender";
 import { IntruderPage } from "@/pages/Intruder";
 import { LoggerPage } from "@/pages/Logger";
 import { MacrosPage } from "@/pages/Macros";
+import { CompliancePage } from "@/pages/Compliance";
+import { GraphQLPage } from "@/pages/GraphQL";
+import { MonitorPage } from "@/pages/Monitor";
+import { OpenApiTestsPage } from "@/pages/OpenApiTests";
+import { OwaspDashboardPage } from "@/pages/OwaspDashboardPage";
 import { ProjectOptionsPage } from "@/pages/ProjectOptions";
 import { ProxyPage } from "@/pages/Proxy";
 import { RepeaterPage } from "@/pages/Repeater";
@@ -60,6 +70,11 @@ type Page =
   | "websockets"
   | "ai"
   | "ai-attack"
+  | "openapi-tests"
+  | "graphql"
+  | "compliance"
+  | "monitor"
+  | "owasp-dashboard"
   | "project-options"
   | "user-options";
 
@@ -87,6 +102,11 @@ const NAV: NavEntry[] = [
   { id: "websockets", label: "WebSockets", icon: Plug2, group: "tools" },
   { id: "ai", label: "AI Assistant", icon: Brain, group: "tools" },
   { id: "ai-attack", label: "AI Attack", icon: Zap, group: "tools" },
+  { id: "openapi-tests", label: "OpenAPI tests", icon: FileJson, group: "tools" },
+  { id: "graphql", label: "GraphQL", icon: Globe, group: "tools" },
+  { id: "compliance", label: "Compliance", icon: FileCheck2, group: "tools" },
+  { id: "monitor", label: "Monitor", icon: Clock, group: "tools" },
+  { id: "owasp-dashboard", label: "OWASP dashboard", icon: ChartBar, group: "tools" },
   { id: "project-options", label: "Project options", icon: SettingsIcon, group: "options" },
   { id: "user-options", label: "User options", icon: KeySquare, group: "options" },
 ];
@@ -191,6 +211,16 @@ export function App() {
         return <AiAssistantPage />;
       case "ai-attack":
         return <AiAttackPage />;
+      case "openapi-tests":
+        return <OpenApiTestsPage />;
+      case "graphql":
+        return <GraphQLPage />;
+      case "compliance":
+        return <CompliancePage />;
+      case "monitor":
+        return <MonitorPage />;
+      case "owasp-dashboard":
+        return <OwaspDashboardPage />;
       case "project-options":
         return <ProjectOptionsPage />;
       case "user-options":

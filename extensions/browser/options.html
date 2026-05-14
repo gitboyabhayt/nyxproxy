@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Send to NyxProxy — options</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 520px; margin: 24px auto; padding: 0 16px; color: #111; background: #fafafa; }
+      h1 { font-size: 20px; }
+      label { display: block; font-size: 13px; color: #444; margin-top: 16px; }
+      input[type="text"] { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #ccc; border-radius: 6px; font-family: monospace; }
+      button { margin-top: 12px; padding: 8px 14px; border-radius: 6px; border: 0; background: #6c4cff; color: white; cursor: pointer; font-weight: 600; }
+      .status { margin-top: 12px; font-size: 13px; color: #333; }
+      code { background: #eee; padding: 2px 4px; border-radius: 3px; }
+    </style>
+  </head>
+  <body>
+    <h1>Send to NyxProxy</h1>
+    <p>NyxProxy listens for the browser extension on <code>http://127.0.0.1:8090</code> by default. Change it here if you bound the bridge to a different port.</p>
+    <label for="bridgeBase">Bridge base URL</label>
+    <input type="text" id="bridgeBase" placeholder="http://127.0.0.1:8090" />
+    <div>
+      <button id="save">Save</button>
+      <button id="test" style="background:#444; margin-left: 8px;">Test connection</button>
+    </div>
+    <div class="status" id="status"></div>
+    <script src="options.js"></script>
+  </body>
+</html>

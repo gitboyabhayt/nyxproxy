@@ -4,9 +4,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use nyxproxy_core::bridge::{self, BridgeConfig};
 use nyxproxy_core::ca::CertAuthority;
 use nyxproxy_core::history::HistoryStore;
 use nyxproxy_core::macros::MacroStore;
+use nyxproxy_core::monitor::MonitorState;
 use nyxproxy_core::plugins::PluginManager;
 use nyxproxy_core::proxy::{Proxy, ProxyConfig, ProxyHandle};
 use parking_lot::Mutex;
@@ -24,6 +26,7 @@ pub struct AppState {
     pub settings: SettingsStore,
     pub plugins: PluginManager,
     pub macros: MacroStore,
+    pub monitor: Arc<Mutex<MonitorState>>,
 }
 
 impl AppState {
@@ -78,6 +81,32 @@ impl AppState {
 
         let macros = MacroStore::open(data_dir.join("macros.json"))?;
 
+        // Continuous monitoring: load any persisted schedules if present.
+        let monitor_path = data_dir.join("monitor.json");
+        let monitor_initial = if monitor_path.exists() {
+            match std::fs::read(&monitor_path) {
+                Ok(bytes) => serde_json::from_slice::<MonitorState>(&bytes).unwrap_or_default(),
+                Err(_) => MonitorState::default(),
+            }
+        } else {
+            MonitorState::default()
+        };
+        let monitor = Arc::new(Mutex::new(monitor_initial));
+
+        // Bridge server: local-only HTTP API for the browser extension and CI.
+        // Failure to bind (e.g. another instance already running) is logged
+        // but not fatal — the desktop app stays usable without the bridge.
+        let bridge_cfg = BridgeConfig::default();
+        match bridge::start(bridge_cfg, history.clone()).await {
+            Ok(h) => {
+                tracing::info!(addr = %h.local_addr, "bridge listening");
+                let _ = h.task;
+            }
+            Err(err) => {
+                tracing::warn!(?err, "bridge: failed to start (continuing without it)");
+            }
+        }
+
         Ok(Self {
             data_dir,
             ca,
@@ -87,7 +116,16 @@ impl AppState {
             settings,
             plugins,
             macros,
+            monitor,
         })
+    }
+
+    pub fn persist_monitor(&self) {
+        let path = self.data_dir.join("monitor.json");
+        let snapshot = self.monitor.lock().clone();
+        if let Ok(bytes) = serde_json::to_vec_pretty(&snapshot) {
+            let _ = std::fs::write(path, bytes);
+        }
     }
 
     pub fn running(&self) -> bool {

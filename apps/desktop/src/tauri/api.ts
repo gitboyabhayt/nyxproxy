@@ -19,6 +19,7 @@ import type {
   Codec,
   DecoderSmartResult,
   HistoryEntry,
+  HttpFlow,
   IntruderAttempt,
   IntruderConfig,
   InterceptEntry,
@@ -279,6 +280,295 @@ export const WorkspaceApi = {
   load: (path: string) => invoke<Workspace>("workspace_load_cmd", { path }),
 };
 
+export interface BurpImportSummary {
+  items_seen: number;
+  items_imported: number;
+  items_skipped: number;
+  errors: string[];
+  burp_version: string | null;
+  export_time: string | null;
+}
+
+export const BurpImportApi = {
+  /** Import a Burp Suite "Save items" XML export from a path on disk. */
+  importFromXml: (path: string) =>
+    invoke<BurpImportSummary>("burp_import_cmd", { path }),
+};
+
+export type OpenApiCategory = "auth-bypass" | "idor" | "rate-limit";
+
+export interface OpenApiTestCase {
+  category: OpenApiCategory;
+  name: string;
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body: string | null;
+  repeat: number;
+  notes: string;
+}
+
+export interface OpenApiPlan {
+  version: string;
+  server_url: string;
+  cases: OpenApiTestCase[];
+  diagnostics: string[];
+}
+
+export const OpenApiApi = {
+  /** Read an OpenAPI / Swagger JSON document from disk and produce a plan. */
+  buildPlan: (path: string, baseOverride?: string) =>
+    invoke<OpenApiPlan>("openapi_build_plan_cmd", {
+      path,
+      baseOverride: baseOverride ?? null,
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// GraphQL native (Feature R)
+// ---------------------------------------------------------------------------
+
+export type GraphQLAttackKind =
+  | "introspection-enabled"
+  | "alias-overload"
+  | "batched-queries"
+  | "deep-nesting"
+  | "field-suggestion-leak";
+
+export interface GraphQLAttackCase {
+  kind: GraphQLAttackKind;
+  name: string;
+  method: string;
+  body: string;
+  repeat: number;
+  notes: string;
+}
+
+export interface GraphQLType {
+  name: string;
+  kind: string;
+  fields: string[];
+}
+
+export interface GraphQLSchema {
+  query_type: string | null;
+  mutation_type: string | null;
+  subscription_type: string | null;
+  types: GraphQLType[];
+}
+
+export const GraphQLApi = {
+  listEndpoints: () => invoke<string[]>("graphql_list_endpoints"),
+  introspectionQuery: () => invoke<string>("graphql_introspection_query"),
+  parseIntrospection: (body: string) =>
+    invoke<GraphQLSchema>("graphql_parse_introspection", { body }),
+  buildAttackPlan: (schema?: GraphQLSchema) =>
+    invoke<GraphQLAttackCase[]>("graphql_build_attack_plan", {
+      schemaJson: schema ? JSON.stringify(schema) : null,
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// PCAP export (Feature GG)
+// ---------------------------------------------------------------------------
+
+export const PcapApi = {
+  /** Export the current history (or `flow_ids` subset) to a pcap file. */
+  exportToFile: (path: string, flowIds?: string[]) =>
+    invoke<number>("pcap_export_cmd", {
+      path,
+      flowIds: flowIds && flowIds.length > 0 ? flowIds : null,
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// Compliance reports (Feature II)
+// ---------------------------------------------------------------------------
+
+export type ComplianceFramework =
+  | "pci-dss"
+  | "iso27001"
+  | "soc2"
+  | "hipaa"
+  | "gdpr";
+
+export interface ComplianceControl {
+  framework: ComplianceFramework;
+  control_id: string;
+  control_title: string;
+}
+
+export interface ComplianceFinding {
+  issue_name: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  url: string;
+  controls: ComplianceControl[];
+}
+
+export interface FrameworkCoverage {
+  framework: ComplianceFramework;
+  control_id: string;
+  control_title: string;
+  finding_count: number;
+}
+
+export interface ComplianceReport {
+  generated_at: string;
+  frameworks: ComplianceFramework[];
+  findings: ComplianceFinding[];
+  coverage: FrameworkCoverage[];
+}
+
+export const ComplianceApi = {
+  build: (issues: Issue[], frameworks: ComplianceFramework[]) =>
+    invoke<ComplianceReport>("compliance_build_cmd", {
+      args: { issues, frameworks },
+    }),
+  renderHtml: (report: ComplianceReport) =>
+    invoke<string>("compliance_render_html_cmd", { report }),
+  renderMarkdown: (report: ComplianceReport) =>
+    invoke<string>("compliance_render_md_cmd", { report }),
+};
+
+// ---------------------------------------------------------------------------
+// Embedded Chromium browser (Feature DD)
+// ---------------------------------------------------------------------------
+
+export const EmbeddedBrowserApi = {
+  /** Open a new webview window pointing at `targetUrl`, routed through the
+   *  configured proxy (defaults to the running NyxProxy listener). */
+  open: (targetUrl: string, proxyUrl?: string) =>
+    invoke<string>("open_embedded_browser_cmd", {
+      targetUrl,
+      proxyUrl: proxyUrl ?? null,
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// Self-hosting wizard (Feature Y)
+// ---------------------------------------------------------------------------
+
+export interface SelfHostConfig {
+  port: number;
+  enableCaddy: boolean;
+  caddyHost: string | null;
+  enableCloudflareTunnel: boolean;
+  persistentDataVolume: boolean;
+}
+
+export interface SelfHostBundle {
+  dockerfile: string;
+  compose: string;
+  envExample: string;
+  caddyfile: string | null;
+  readme: string;
+}
+
+export const SelfHostApi = {
+  render: (config: SelfHostConfig) =>
+    invoke<SelfHostBundle>("selfhost_render_cmd", { args: { config } }),
+  write: (config: SelfHostConfig, outputDir: string) =>
+    invoke<string[]>("selfhost_write_cmd", { args: { config, outputDir } }),
+};
+
+// ---------------------------------------------------------------------------
+// .nyxshare encrypted evidence packs (Leapfrog #8)
+// ---------------------------------------------------------------------------
+
+export interface ShareManifest {
+  createdAt: string;
+  appVersion: string;
+  note: string;
+  flowCount: number;
+  issueCount: number;
+}
+
+export interface SharePayload {
+  manifest: ShareManifest;
+  flows: HttpFlow[];
+  issues: Issue[];
+}
+
+export const NyxShareApi = {
+  seal: (args: {
+    password: string;
+    note: string;
+    flowIds: string[];
+    issues: Issue[];
+  }) => invoke<number[]>("share_seal_cmd", { args }),
+  unseal: (args: { password: string; bytes: number[] }) =>
+    invoke<SharePayload>("share_unseal_cmd", { args }),
+};
+
+// ---------------------------------------------------------------------------
+// Continuous monitoring (Feature AA)
+// ---------------------------------------------------------------------------
+
+export type Cadence = "hourly" | "daily" | "weekly";
+
+export interface MonitorSchedule {
+  id: string;
+  name: string;
+  targetUrl: string;
+  scopeHosts: string[];
+  cadence: Cadence;
+  createdAt: string;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  enabled: boolean;
+  baselineFingerprints: string[];
+}
+
+export interface MonitorRunRecord {
+  scheduleId: string;
+  startedAt: string;
+  finishedAt: string;
+  newIssues: Issue[];
+  resolvedIssues: Issue[];
+  stillPresent: number;
+  error: string | null;
+}
+
+export const MonitorApi = {
+  list: () => invoke<MonitorSchedule[]>("monitor_list_cmd"),
+  upsert: (args: {
+    name: string;
+    targetUrl: string;
+    scopeHosts: string[];
+    cadence: Cadence;
+  }) => invoke<MonitorSchedule>("monitor_upsert_cmd", { args }),
+  remove: (id: string) => invoke<void>("monitor_remove_cmd", { args: { id } }),
+  completeRun: (args: {
+    scheduleId: string;
+    issues: Issue[];
+    error: string | null;
+  }) => invoke<MonitorRunRecord | null>("monitor_complete_run_cmd", { args }),
+  runs: () => invoke<MonitorRunRecord[]>("monitor_runs_cmd"),
+};
+
+// ---------------------------------------------------------------------------
+// Live OWASP dashboard (Leapfrog #6)
+// ---------------------------------------------------------------------------
+
+export interface OwaspCategoryStat {
+  code: string;
+  title: string;
+  count: number;
+  percent: number;
+  industryBaseline: number;
+  deltaPp: number;
+}
+
+export interface OwaspDashboard {
+  total: number;
+  categories: OwaspCategoryStat[];
+}
+
+export const OwaspDashboardApi = {
+  build: (issues: Issue[]) =>
+    invoke<OwaspDashboard>("owasp_dashboard_cmd", { args: { issues } }),
+};
+
 export const WebSocketApi = {
   listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
   getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
@@ -522,6 +812,97 @@ function makeMockBridge(): TauriBridge {
           saved_at: new Date().toISOString(),
           app_version: "0.0.0",
         } as unknown as never;
+      case "burp_import_cmd":
+        return {
+          items_seen: 0,
+          items_imported: 0,
+          items_skipped: 0,
+          errors: [],
+          burp_version: null,
+          export_time: null,
+        } as unknown as never;
+      case "openapi_build_plan_cmd":
+        return {
+          version: "mock",
+          server_url: "https://mock.example.com",
+          cases: [],
+          diagnostics: ["mock: openapi plan not available in browser preview"],
+        } as unknown as never;
+      case "graphql_list_endpoints":
+        return [] as unknown as never;
+      case "graphql_introspection_query":
+        return "query IntrospectionQuery { __schema { queryType { name } } }" as unknown as never;
+      case "graphql_parse_introspection":
+        return {
+          query_type: null,
+          mutation_type: null,
+          subscription_type: null,
+          types: [],
+        } as unknown as never;
+      case "graphql_build_attack_plan":
+        return [] as unknown as never;
+      case "pcap_export_cmd":
+        return 0 as unknown as never;
+      case "compliance_build_cmd":
+        return {
+          generated_at: new Date().toISOString(),
+          frameworks: [],
+          findings: [],
+          coverage: [],
+        } as unknown as never;
+      case "compliance_render_html_cmd":
+        return "<html><body>mock report</body></html>" as unknown as never;
+      case "compliance_render_md_cmd":
+        return "# mock report" as unknown as never;
+      case "open_embedded_browser_cmd":
+        return "mock-window" as unknown as never;
+      case "selfhost_render_cmd":
+        return {
+          dockerfile: "# mock",
+          compose: "# mock",
+          envExample: "# mock",
+          caddyfile: null,
+          readme: "# mock",
+        } as unknown as never;
+      case "selfhost_write_cmd":
+        return [] as unknown as never;
+      case "share_seal_cmd":
+        return [] as unknown as never;
+      case "share_unseal_cmd":
+        return {
+          manifest: {
+            createdAt: new Date().toISOString(),
+            appVersion: "mock",
+            note: "",
+            flowCount: 0,
+            issueCount: 0,
+          },
+          flows: [],
+          issues: [],
+        } as unknown as never;
+      case "monitor_list_cmd":
+        return [] as unknown as never;
+      case "monitor_upsert_cmd":
+        return {
+          id: "mock",
+          name: "mock",
+          targetUrl: "https://mock/",
+          scopeHosts: [],
+          cadence: "daily",
+          createdAt: new Date().toISOString(),
+          lastRunAt: null,
+          nextRunAt: new Date().toISOString(),
+          enabled: true,
+          baselineFingerprints: [],
+        } as unknown as never;
+      case "monitor_remove_cmd":
+        return undefined as unknown as never;
+      case "monitor_complete_run_cmd":
+        return null as unknown as never;
+      case "monitor_runs_cmd":
+        return [] as unknown as never;
+      case "owasp_dashboard_cmd":
+        return { total: 0, categories: [] } as unknown as never;
       default:
         throw new Error(`unsupported mock invoke: ${cmd}`);
     }

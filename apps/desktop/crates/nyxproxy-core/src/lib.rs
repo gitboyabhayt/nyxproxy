@@ -15,22 +15,32 @@
 //! The crate has **no dependency on Tauri** so the engine can be unit-tested
 //! in isolation, embedded in headless tools, or wrapped by an alternative UI.
 
+pub mod bridge;
+pub mod burp_import;
 pub mod ca;
+pub mod compliance;
 pub mod decoder;
 pub mod error;
+pub mod graphql;
 pub mod history;
 pub mod intercept;
 pub mod intruder;
 pub mod jwt;
 pub mod macros;
 pub mod model;
+pub mod monitor;
+pub mod nyxshare;
+pub mod openapi;
 pub mod owasp;
+pub mod owasp_dashboard;
+pub mod pcap;
 pub mod plugins;
 pub mod proxy;
 pub mod repeater;
 pub mod report;
 pub mod risk;
 pub mod scanner;
+pub mod selfhost;
 pub mod sequencer;
 pub mod spider;
 pub mod websocket;
