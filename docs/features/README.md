@@ -43,11 +43,13 @@ Each feature listed here has a dedicated guide explaining what it does, how to u
 | AI Assistant | AI Assistant | [ai-assistant.md](ai-assistant.md) |
 | AI analysis on requests | Logger / Repeater | [ai-analysis.md](ai-analysis.md) |
 | Provider configuration | User options | [providers.md](providers.md) |
+| **AI Auto-attack / Chain scan / Fuzz mutator** *(new in PR #6)* | AI Attack | [ai-attack.md](ai-attack.md) |
 
 ## Phase 6 — UX & meta
 
 | Feature | Page | Doc |
 |---|---|---|
+| **WebSocket viewer & replay** *(new in PR #5)* | WebSockets | [websockets.md](websockets.md) |
 | **Hotkey palette (Ctrl + K)** *(new in PR #4)* | Global | [hotkeys.md](hotkeys.md) |
 | **Project workspaces** *(new in PR #4)* | Project options | [workspaces.md](workspaces.md) |
 | **OWASP / risk scoring** *(new in PR #4)* | Logger badges | [risk-scoring.md](risk-scoring.md) |
@@ -62,16 +64,16 @@ These features are tracked in the roadmap but not yet shipped — see `ROADMAP.m
 
 | Feature | Target PR |
 |---|---|
-| WebSocket viewer + replay (A) | #5 |
+| ~~WebSocket viewer + replay (A)~~ — **landed in PR #5** | done |
 | Recorded Playwright macros (B) | #7 |
-| AI auto-attack mode (C) | #6 |
+| ~~AI auto-attack mode (C)~~ — **landed in PR #6** | done |
 | Burp `.burp` import (E) | #10 |
 | Cloud sync via Supabase (F) | #7 |
 | HTTP/2 + HTTP/3 (G) | #5 |
-| AI chained scanning (H) | #6 |
+| ~~AI chained scanning (H)~~ — **landed in PR #6** | done |
 | Live multi-user (J) | #7 |
 | Distributed scanning (K) | #10 |
-| AI fuzz mutator (L) | #6 |
+| ~~AI fuzz mutator (L)~~ — **landed in PR #6** | done |
 | DevTools-style trace (M) | #9 |
 | ~~CVE auto-mapping (N)~~ — **landed in PR #4** | done |
 | NyxStore plugin marketplace (P) | #8 |

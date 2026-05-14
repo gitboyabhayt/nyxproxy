@@ -79,6 +79,9 @@ pub fn run() {
             commands::ai_find_vulns,
             commands::ai_generate_payloads,
             commands::ai_list_providers,
+            commands::ai_auto_attack,
+            commands::ai_fuzz_mutate,
+            commands::ai_chain_scan,
             commands::scanner_scan_history,
             commands::scanner_scan_flow,
             commands::spider_run,
@@ -105,6 +108,10 @@ pub fn run() {
             commands::risk_summary_cmd,
             commands::workspace_save_cmd,
             commands::workspace_load_cmd,
+            commands::ws_list_sessions,
+            commands::ws_get_session,
+            commands::ws_frames,
+            commands::ws_replay,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NyxProxy");

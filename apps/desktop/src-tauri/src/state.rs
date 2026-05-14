@@ -59,6 +59,17 @@ impl AppState {
             }
         });
 
+        // Fan WebSocket session/frame events to the webview.
+        let mut wrx = proxy.ws_store.subscribe();
+        let app3 = handle.clone();
+        tokio::spawn(async move {
+            while let Ok(event) = wrx.recv().await {
+                if let Err(err) = app3.emit("nyxproxy://websocket", &event) {
+                    tracing::warn!(?err, "failed to emit websocket event");
+                }
+            }
+        });
+
         let plugins_dir = data_dir.join("plugins");
         let plugins = PluginManager::new(&plugins_dir);
         if let Err(err) = plugins.reload() {

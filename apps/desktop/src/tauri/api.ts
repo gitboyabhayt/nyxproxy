@@ -38,6 +38,16 @@ import type {
   SpiderConfig,
   SpiderHit,
   Workspace,
+  WsDirection,
+  WsFrame,
+  WsOpcode,
+  WsSession,
+  AutoAttackPlan,
+  ChainScanResponse,
+  FuzzMutateResponse,
+  HttpRequestPayload,
+  HttpResponsePayload,
+  VulnClass,
 } from "./types";
 
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -149,7 +159,36 @@ export const AiApi = {
     invoke<AiAnalyzeResponse>("ai_find_vulns", { body }),
   generatePayloads: (body: AiPayloadRequestBody) =>
     invoke<AiAnalyzeResponse>("ai_generate_payloads", { body }),
+  autoAttack: (body: AiAutoAttackRequestBody) =>
+    invoke<AutoAttackPlan>("ai_auto_attack", { body }),
+  fuzzMutate: (body: AiFuzzMutateRequestBody) =>
+    invoke<FuzzMutateResponse>("ai_fuzz_mutate", { body }),
+  chainScan: (body: AiChainScanRequestBody) =>
+    invoke<ChainScanResponse>("ai_chain_scan", { body }),
 };
+
+export interface AiAutoAttackRequestBody {
+  request: HttpRequestPayload;
+  response?: HttpResponsePayload | null;
+  suspected?: VulnClass[];
+  payloads_per_class: number;
+  provider?: string | null;
+}
+
+export interface AiFuzzMutateRequestBody {
+  seed: string;
+  parameter?: string | null;
+  attack_type: string;
+  count: number;
+  provider?: string | null;
+}
+
+export interface AiChainScanRequestBody {
+  request: HttpRequestPayload;
+  response?: HttpResponsePayload | null;
+  issues_seen?: string[];
+  provider?: string | null;
+}
 
 export const SettingsApi = {
   get: () => invoke<Settings>("settings_get"),
@@ -239,6 +278,35 @@ export const WorkspaceApi = {
     }),
   load: (path: string) => invoke<Workspace>("workspace_load_cmd", { path }),
 };
+
+export const WebSocketApi = {
+  listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
+  getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
+  frames: (sessionId: string) => invoke<WsFrame[]>("ws_frames", { sessionId }),
+  replay: (args: {
+    sessionId: string;
+    direction: WsDirection;
+    opcode: WsOpcode;
+    payloadB64?: string;
+    text?: string;
+  }) =>
+    invoke<void>("ws_replay", {
+      args: {
+        sessionId: args.sessionId,
+        direction: args.direction,
+        opcode: args.opcode,
+        payloadB64: args.payloadB64 ?? null,
+        text: args.text ?? null,
+      },
+    }),
+  subscribe: (handler: (event: WsEvent) => void) =>
+    listen<WsEvent>("nyxproxy://websocket", handler),
+};
+
+export type WsEvent =
+  | { kind: "session_started"; session: WsSession }
+  | { kind: "frame"; frame: WsFrame }
+  | { kind: "session_ended"; session: WsSession };
 
 /* ---------- Mock bridge for headless browser preview ---------- */
 
@@ -388,6 +456,31 @@ function makeMockBridge(): TauriBridge {
           model: "mock",
           content: "Running outside the Tauri shell — connect via npm run tauri:dev for real AI calls.",
           choices: [{ message: { role: "assistant", content: "mock response" } }],
+        } as unknown as never;
+      case "ai_auto_attack":
+        return {
+          summary: "Mock plan — connect via npm run tauri:dev for real AI calls.",
+          vectors: [],
+          provider: "mock",
+          model: "mock",
+          fallbacks_tried: [],
+        } as unknown as never;
+      case "ai_fuzz_mutate":
+        return {
+          mutations: [],
+          provider: "mock",
+          model: "mock",
+          fallbacks_tried: [],
+        } as unknown as never;
+      case "ai_chain_scan":
+        return {
+          summary: "Mock chain scan",
+          risk_score: 0,
+          steps: [],
+          next_actions: [],
+          provider: "mock",
+          model: "mock",
+          fallbacks_tried: [],
         } as unknown as never;
       case "settings_get":
         return settings as unknown as never;

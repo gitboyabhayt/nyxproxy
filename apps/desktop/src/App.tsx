@@ -13,17 +13,20 @@ import {
   type LucideIcon,
   Menu,
   Plug,
+  Plug2,
   PlaySquare,
   Radio,
   Radar,
   Repeat,
   Settings as SettingsIcon,
   Shield,
+  Zap,
 } from "lucide-react";
 
 import { CommandPalette, type PaletteCommand } from "@/components/CommandPalette";
 import { Toasts } from "@/components/Toasts";
 import { AiAssistantPage } from "@/pages/AiAssistant";
+import { AiAttackPage } from "@/pages/AiAttack";
 import { CollaboratorPage } from "@/pages/Collaborator";
 import { ComparerPage } from "@/pages/Comparer";
 import { DashboardPage } from "@/pages/Dashboard";
@@ -38,6 +41,7 @@ import { RepeaterPage } from "@/pages/Repeater";
 import { SequencerPage } from "@/pages/Sequencer";
 import { TargetPage } from "@/pages/Target";
 import { UserOptionsPage } from "@/pages/UserOptions";
+import { WebSocketsPage } from "@/pages/WebSockets";
 import { useAppStore } from "@/state/store";
 
 type Page =
@@ -53,7 +57,9 @@ type Page =
   | "extender"
   | "collaborator"
   | "macros"
+  | "websockets"
   | "ai"
+  | "ai-attack"
   | "project-options"
   | "user-options";
 
@@ -78,7 +84,9 @@ const NAV: NavEntry[] = [
   { id: "extender", label: "Extender", icon: Plug, group: "tools" },
   { id: "collaborator", label: "Collaborator", icon: Radar, group: "tools" },
   { id: "macros", label: "Macros", icon: PlaySquare, group: "tools" },
+  { id: "websockets", label: "WebSockets", icon: Plug2, group: "tools" },
   { id: "ai", label: "AI Assistant", icon: Brain, group: "tools" },
+  { id: "ai-attack", label: "AI Attack", icon: Zap, group: "tools" },
   { id: "project-options", label: "Project options", icon: SettingsIcon, group: "options" },
   { id: "user-options", label: "User options", icon: KeySquare, group: "options" },
 ];
@@ -177,8 +185,12 @@ export function App() {
         return <CollaboratorPage />;
       case "macros":
         return <MacrosPage />;
+      case "websockets":
+        return <WebSocketsPage />;
       case "ai":
         return <AiAssistantPage />;
+      case "ai-attack":
+        return <AiAttackPage />;
       case "project-options":
         return <ProjectOptionsPage />;
       case "user-options":

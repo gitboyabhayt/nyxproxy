@@ -90,6 +90,109 @@ pub struct PayloadRequestBody {
     pub provider: Option<String>,
 }
 
+// ---------- AI auto-attack / chained scan / fuzz mutator (PR #6) ----------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoAttackRequestBody {
+    pub request: HttpRequestPayload,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponsePayload>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub suspected: Option<Vec<String>>,
+    pub payloads_per_class: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttackPayload {
+    pub payload: String,
+    pub rationale: String,
+    pub exploitability: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AttackVector {
+    pub vuln: String,
+    pub parameter: String,
+    pub location: String,
+    pub severity: String,
+    pub payloads: Vec<AttackPayload>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoAttackPlan {
+    pub summary: String,
+    pub vectors: Vec<AttackVector>,
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub fallbacks_tried: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FuzzMutateRequestBody {
+    pub seed: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parameter: Option<String>,
+    pub attack_type: String,
+    pub count: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FuzzMutation {
+    pub payload: String,
+    pub technique: String,
+    #[serde(default)]
+    pub bypasses: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FuzzMutateResponse {
+    pub mutations: Vec<FuzzMutation>,
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub fallbacks_tried: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainScanRequestBody {
+    pub request: HttpRequestPayload,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub response: Option<HttpResponsePayload>,
+    #[serde(default)]
+    pub issues_seen: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainScanStep {
+    pub kind: String,
+    pub title: String,
+    #[serde(default)]
+    pub issues: Vec<String>,
+    #[serde(default)]
+    pub payloads_used: Vec<String>,
+    #[serde(default)]
+    pub notes: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChainScanResponse {
+    pub summary: String,
+    pub risk_score: u32,
+    pub steps: Vec<ChainScanStep>,
+    pub next_actions: Vec<String>,
+    pub provider: String,
+    pub model: String,
+    #[serde(default)]
+    pub fallbacks_tried: Vec<String>,
+}
+
 #[derive(Clone)]
 pub struct AiClient {
     client: Client,
@@ -144,6 +247,42 @@ impl AiClient {
             .await?
             .error_for_status()?
             .json::<AnalyzeResponse>()
+            .await?)
+    }
+
+    pub async fn auto_attack(&self, body: AutoAttackRequestBody) -> Result<AutoAttackPlan> {
+        let url = format!("{}/v1/ai/auto-attack", self.base_url);
+        Ok(self
+            .auth(self.client.post(&url))
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<AutoAttackPlan>()
+            .await?)
+    }
+
+    pub async fn fuzz_mutate(&self, body: FuzzMutateRequestBody) -> Result<FuzzMutateResponse> {
+        let url = format!("{}/v1/ai/fuzz-mutate", self.base_url);
+        Ok(self
+            .auth(self.client.post(&url))
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<FuzzMutateResponse>()
+            .await?)
+    }
+
+    pub async fn chain_scan(&self, body: ChainScanRequestBody) -> Result<ChainScanResponse> {
+        let url = format!("{}/v1/ai/chain-scan", self.base_url);
+        Ok(self
+            .auth(self.client.post(&url))
+            .json(&body)
+            .send()
+            .await?
+            .error_for_status()?
+            .json::<ChainScanResponse>()
             .await?)
     }
 

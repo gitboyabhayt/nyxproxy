@@ -19,6 +19,7 @@ use nyxproxy_core::risk;
 use nyxproxy_core::scanner::{self, Issue};
 use nyxproxy_core::sequencer::{self, SequencerReport};
 use nyxproxy_core::spider::{crawl as spider_crawl, SpiderConfig, SpiderHit};
+use nyxproxy_core::websocket::{WsDirection, WsFrame, WsOpcode, WsSession};
 use nyxproxy_core::workspace::{self, Workspace};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
@@ -26,8 +27,9 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::ai::{
-    AiClient, AnalyzeRequestBody, AnalyzeResponse, ChatRequest, ChatResponse,
-    PayloadRequestBody, ProvidersResponse,
+    AiClient, AnalyzeRequestBody, AnalyzeResponse, AutoAttackPlan, AutoAttackRequestBody,
+    ChainScanRequestBody, ChainScanResponse, ChatRequest, ChatResponse, FuzzMutateRequestBody,
+    FuzzMutateResponse, PayloadRequestBody, ProvidersResponse,
 };
 use crate::settings::Settings;
 use crate::state::AppState;
@@ -323,6 +325,33 @@ pub async fn ai_list_providers(
 ) -> Result<ProvidersResponse, String> {
     let client = with_state(&state, ai_client_from_state)?;
     client.providers().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_auto_attack(
+    state: State<'_, AppStateSlot>,
+    body: AutoAttackRequestBody,
+) -> Result<AutoAttackPlan, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.auto_attack(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_fuzz_mutate(
+    state: State<'_, AppStateSlot>,
+    body: FuzzMutateRequestBody,
+) -> Result<FuzzMutateResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.fuzz_mutate(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_chain_scan(
+    state: State<'_, AppStateSlot>,
+    body: ChainScanRequestBody,
+) -> Result<ChainScanResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.chain_scan(body).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -651,4 +680,64 @@ pub fn workspace_load_cmd(path: String) -> Result<Workspace, String> {
 #[allow(dead_code)]
 fn _owasp_keepalive() -> OwaspCategory {
     OwaspCategory::Other
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket viewer (Feature A)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn ws_list_sessions(state: State<'_, AppStateSlot>) -> Result<Vec<WsSession>, String> {
+    with_state(&state, |s| s.proxy.ws_store.list_sessions())
+}
+
+#[tauri::command]
+pub fn ws_get_session(
+    state: State<'_, AppStateSlot>,
+    id: String,
+) -> Result<Option<WsSession>, String> {
+    let id = Uuid::parse_str(&id).map_err(|e| format!("bad session id: {e}"))?;
+    with_state(&state, |s| s.proxy.ws_store.get_session(id))
+}
+
+#[tauri::command]
+pub fn ws_frames(
+    state: State<'_, AppStateSlot>,
+    session_id: String,
+) -> Result<Vec<WsFrame>, String> {
+    let id = Uuid::parse_str(&session_id).map_err(|e| format!("bad session id: {e}"))?;
+    with_state(&state, |s| s.proxy.ws_store.frames_for(id))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsReplayArgs {
+    pub session_id: String,
+    pub direction: WsDirection,
+    pub opcode: WsOpcode,
+    /// Base64-encoded payload. Empty string is permitted (e.g. ping).
+    pub payload_b64: Option<String>,
+    /// UTF-8 text payload. Mutually exclusive with `payload_b64`.
+    pub text: Option<String>,
+}
+
+#[tauri::command]
+pub fn ws_replay(state: State<'_, AppStateSlot>, args: WsReplayArgs) -> Result<(), String> {
+    use base64::Engine;
+    let id = Uuid::parse_str(&args.session_id).map_err(|e| format!("bad session id: {e}"))?;
+    let bytes = if let Some(b64) = args.payload_b64 {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("invalid base64: {e}"))?
+    } else if let Some(text) = args.text {
+        text.into_bytes()
+    } else {
+        Vec::new()
+    };
+    with_state(&state, |s| {
+        s.proxy
+            .ws_store
+            .replay(id, args.direction, args.opcode, bytes)
+    })?
+    .map_err(|e| e.to_string())
 }
