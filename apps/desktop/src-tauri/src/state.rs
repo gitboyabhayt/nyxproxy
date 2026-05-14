@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use nyxproxy_core::bridge::{self, BridgeConfig};
 use nyxproxy_core::ca::CertAuthority;
 use nyxproxy_core::history::HistoryStore;
 use nyxproxy_core::macros::MacroStore;
@@ -77,6 +78,20 @@ impl AppState {
         }
 
         let macros = MacroStore::open(data_dir.join("macros.json"))?;
+
+        // Bridge server: local-only HTTP API for the browser extension and CI.
+        // Failure to bind (e.g. another instance already running) is logged
+        // but not fatal — the desktop app stays usable without the bridge.
+        let bridge_cfg = BridgeConfig::default();
+        match bridge::start(bridge_cfg, history.clone()).await {
+            Ok(h) => {
+                tracing::info!(addr = %h.local_addr, "bridge listening");
+                let _ = h.task;
+            }
+            Err(err) => {
+                tracing::warn!(?err, "bridge: failed to start (continuing without it)");
+            }
+        }
 
         Ok(Self {
             data_dir,

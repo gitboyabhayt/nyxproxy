@@ -1,0 +1,130 @@
+name: "NyxProxy security scan"
+description: "Headless DAST scan of a target URL using the NyxProxy spider + passive scanner. Outputs SARIF for GitHub code scanning."
+author: "NyxProxy Contributors"
+
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  target:
+    description: "Seed URL to scan (required)."
+    required: true
+  scope:
+    description: "Comma-separated host substrings allowed during crawl. Defaults to target's host."
+    required: false
+    default: ""
+  fail-on:
+    description: "Severity threshold to fail the job: info|low|medium|high|critical."
+    required: false
+    default: "high"
+  max-urls:
+    description: "Maximum URLs to visit."
+    required: false
+    default: "200"
+  max-depth:
+    description: "Maximum crawl depth from seed."
+    required: false
+    default: "3"
+  concurrency:
+    description: "Parallel requests."
+    required: false
+    default: "4"
+  insecure:
+    description: "Set to 'true' to ignore TLS certificate errors."
+    required: false
+    default: "false"
+  sarif-path:
+    description: "Output SARIF path (uploaded as artifact). Set empty to skip."
+    required: false
+    default: "nyxproxy-scan.sarif"
+  json-path:
+    description: "Output JSON path. Set empty to skip."
+    required: false
+    default: "nyxproxy-scan.json"
+  html-path:
+    description: "Output HTML path. Set empty to skip."
+    required: false
+    default: "nyxproxy-scan.html"
+  ref:
+    description: "NyxProxy ref to build from (branch / tag / SHA)."
+    required: false
+    default: "main"
+
+outputs:
+  sarif:
+    description: "Path to generated SARIF file."
+    value: ${{ steps.run.outputs.sarif }}
+  json:
+    description: "Path to generated JSON report."
+    value: ${{ steps.run.outputs.json }}
+  html:
+    description: "Path to generated HTML report."
+    value: ${{ steps.run.outputs.html }}
+  failed:
+    description: "True if any finding above --fail-on was produced."
+    value: ${{ steps.run.outputs.failed }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache nyxproxy-scan binary
+      id: cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/nyxproxy/bin
+        key: nyxproxy-scan-${{ runner.os }}-${{ inputs.ref }}
+
+    - name: Install Rust toolchain
+      if: steps.cache.outputs.cache-hit != 'true'
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build nyxproxy-scan from source
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -eu
+        TMP="$(mktemp -d)"
+        git clone --depth 1 --branch "${{ inputs.ref }}" https://github.com/gitboyabhayt/nyxproxy.git "$TMP/nyxproxy"
+        cd "$TMP/nyxproxy/apps/desktop"
+        cargo build --release -p nyxproxy-scan
+        mkdir -p "$HOME/.cache/nyxproxy/bin"
+        cp "target/release/nyxproxy-scan" "$HOME/.cache/nyxproxy/bin/nyxproxy-scan"
+
+    - name: Run NyxProxy scan
+      id: run
+      shell: bash
+      run: |
+        set -eu
+        BIN="$HOME/.cache/nyxproxy/bin/nyxproxy-scan"
+        ARGS=(--target "${{ inputs.target }}" --fail-on "${{ inputs.fail-on }}" --max-urls "${{ inputs.max-urls }}" --max-depth "${{ inputs.max-depth }}" --concurrency "${{ inputs.concurrency }}")
+        if [ -n "${{ inputs.scope }}" ]; then
+          ARGS+=(--scope "${{ inputs.scope }}")
+        fi
+        if [ "${{ inputs.insecure }}" = "true" ]; then
+          ARGS+=(--insecure)
+        fi
+        if [ -n "${{ inputs.sarif-path }}" ]; then
+          ARGS+=(--output-sarif "${{ inputs.sarif-path }}")
+        fi
+        if [ -n "${{ inputs.json-path }}" ]; then
+          ARGS+=(--output-json "${{ inputs.json-path }}")
+        fi
+        if [ -n "${{ inputs.html-path }}" ]; then
+          ARGS+=(--output-html "${{ inputs.html-path }}")
+        fi
+
+        set +e
+        "$BIN" "${ARGS[@]}" | tee "$GITHUB_STEP_SUMMARY"
+        RC=$?
+        set -e
+
+        echo "sarif=${{ inputs.sarif-path }}" >> "$GITHUB_OUTPUT"
+        echo "json=${{ inputs.json-path }}" >> "$GITHUB_OUTPUT"
+        echo "html=${{ inputs.html-path }}" >> "$GITHUB_OUTPUT"
+        if [ "$RC" -eq 1 ]; then
+          echo "failed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "failed=false" >> "$GITHUB_OUTPUT"
+        fi
+        exit $RC

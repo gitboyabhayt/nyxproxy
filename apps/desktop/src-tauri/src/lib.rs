@@ -108,6 +108,8 @@ pub fn run() {
             commands::risk_summary_cmd,
             commands::workspace_save_cmd,
             commands::workspace_load_cmd,
+            commands::burp_import_cmd,
+            commands::openapi_build_plan_cmd,
             commands::ws_list_sessions,
             commands::ws_get_session,
             commands::ws_frames,

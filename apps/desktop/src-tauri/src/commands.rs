@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use futures_util::StreamExt;
+use nyxproxy_core::burp_import::{self, BurpImportSummary};
 use nyxproxy_core::decoder::{self, Codec, DecoderResult};
 use nyxproxy_core::history::HistoryEntry;
 use nyxproxy_core::intercept::InterceptEntry;
@@ -10,6 +11,7 @@ use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConf
 use nyxproxy_core::jwt::{self, JwtBruteResult, JwtDecoded, JwtFinding};
 use nyxproxy_core::macros::{run_macro, Macro, MacroRunResult};
 use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
+use nyxproxy_core::openapi::{self, OpenApiPlan};
 use nyxproxy_core::owasp::{self, OwaspCategory};
 use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
@@ -674,6 +676,51 @@ pub fn workspace_save_cmd(
 pub fn workspace_load_cmd(path: String) -> Result<Workspace, String> {
     let path = std::path::PathBuf::from(path);
     workspace::load_from_path(&path).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Burp Suite XML import (Feature E)
+// ---------------------------------------------------------------------------
+
+/// Import a Burp Suite "Save items" XML export from disk. Reads the file at
+/// `path`, parses every `<item>`, and appends each request/response pair into
+/// the live [`HistoryStore`] tagged with `import:burp`.
+///
+/// Returns a [`BurpImportSummary`] describing how many items were seen,
+/// imported, and skipped, plus the Burp version embedded in the file.
+#[tauri::command]
+pub fn burp_import_cmd(
+    state: State<'_, AppStateSlot>,
+    path: String,
+) -> Result<BurpImportSummary, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    let (flows, summary) =
+        burp_import::parse_burp_xml(&bytes).map_err(|e| format!("parse burp xml: {e}"))?;
+    with_state(&state, |s| {
+        for flow in flows {
+            s.history.insert(flow);
+        }
+    })?;
+    Ok(summary)
+}
+
+// ---------------------------------------------------------------------------
+// OpenAPI / Swagger auto-test generator (Feature BB)
+// ---------------------------------------------------------------------------
+
+/// Parse an OpenAPI / Swagger document and return an [`OpenApiPlan`] of
+/// generated auth-bypass / IDOR / rate-limit test cases.
+///
+/// `path` is read from disk. `base_override` lets the caller substitute the
+/// spec's `servers[0].url` (or Swagger 2 host+basePath) so the same spec can
+/// be aimed at staging vs production without modification.
+#[tauri::command]
+pub fn openapi_build_plan_cmd(
+    path: String,
+    base_override: Option<String>,
+) -> Result<OpenApiPlan, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    openapi::build_plan(&bytes, base_override.as_deref()).map_err(|e| e.to_string())
 }
 
 // silence "unused" lint when OwaspCategory is only used transitively

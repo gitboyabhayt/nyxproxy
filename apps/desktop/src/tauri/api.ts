@@ -279,6 +279,50 @@ export const WorkspaceApi = {
   load: (path: string) => invoke<Workspace>("workspace_load_cmd", { path }),
 };
 
+export interface BurpImportSummary {
+  items_seen: number;
+  items_imported: number;
+  items_skipped: number;
+  errors: string[];
+  burp_version: string | null;
+  export_time: string | null;
+}
+
+export const BurpImportApi = {
+  /** Import a Burp Suite "Save items" XML export from a path on disk. */
+  importFromXml: (path: string) =>
+    invoke<BurpImportSummary>("burp_import_cmd", { path }),
+};
+
+export type OpenApiCategory = "auth-bypass" | "idor" | "rate-limit";
+
+export interface OpenApiTestCase {
+  category: OpenApiCategory;
+  name: string;
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body: string | null;
+  repeat: number;
+  notes: string;
+}
+
+export interface OpenApiPlan {
+  version: string;
+  server_url: string;
+  cases: OpenApiTestCase[];
+  diagnostics: string[];
+}
+
+export const OpenApiApi = {
+  /** Read an OpenAPI / Swagger JSON document from disk and produce a plan. */
+  buildPlan: (path: string, baseOverride?: string) =>
+    invoke<OpenApiPlan>("openapi_build_plan_cmd", {
+      path,
+      baseOverride: baseOverride ?? null,
+    }),
+};
+
 export const WebSocketApi = {
   listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
   getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
@@ -521,6 +565,22 @@ function makeMockBridge(): TauriBridge {
           issues: [],
           saved_at: new Date().toISOString(),
           app_version: "0.0.0",
+        } as unknown as never;
+      case "burp_import_cmd":
+        return {
+          items_seen: 0,
+          items_imported: 0,
+          items_skipped: 0,
+          errors: [],
+          burp_version: null,
+          export_time: null,
+        } as unknown as never;
+      case "openapi_build_plan_cmd":
+        return {
+          version: "mock",
+          server_url: "https://mock.example.com",
+          cases: [],
+          diagnostics: ["mock: openapi plan not available in browser preview"],
         } as unknown as never;
       default:
         throw new Error(`unsupported mock invoke: ${cmd}`);
