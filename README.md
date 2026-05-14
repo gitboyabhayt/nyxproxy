@@ -5,8 +5,32 @@
 [![Desktop CI](https://github.com/gitboyabhayt/nyxproxy/actions/workflows/desktop.yml/badge.svg)](https://github.com/gitboyabhayt/nyxproxy/actions/workflows/desktop.yml)
 [![Backend CI](https://github.com/gitboyabhayt/nyxproxy/actions/workflows/backend.yml/badge.svg)](https://github.com/gitboyabhayt/nyxproxy/actions/workflows/backend.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Made with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://v2.tauri.app/)
-[![Made with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
+[![Code of Conduct](https://img.shields.io/badge/contributor%20covenant-2.1-5e60ce.svg)](CODE_OF_CONDUCT.md)
+[![Built with Tauri](https://img.shields.io/badge/built%20with-Tauri%202-24c8db.svg)](https://v2.tauri.app/)
+[![Built with Rust](https://img.shields.io/badge/built%20with-Rust-orange.svg)](https://www.rust-lang.org/)
+[![Backend Python 3.11+](https://img.shields.io/badge/backend-python%203.11%2B-3776ab.svg)](apps/backend/pyproject.toml)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-success.svg)](CONTRIBUTING.md)
+
+> Drop-in Burp Suite alternative — AI-first, open source, free, native.
+
+## Table of contents
+
+- [Highlights](#highlights)
+- [Hosted backend](#hosted-backend)
+- [Feature matrix](#feature-matrix)
+- [Install](#install)
+- [First run](#first-run)
+- [Architecture](#architecture)
+- [Development](#development)
+- [Deploying the backend to Render](#deploying-the-backend-to-render)
+- [Configuration reference](#configuration-reference)
+- [Roadmap](#roadmap-post-10)
+- [Security](#security) · [SECURITY.md](SECURITY.md)
+- [Contributing](#contributing) · [CONTRIBUTING.md](CONTRIBUTING.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Architecture docs](docs/architecture/overview.md)
+- [Feature docs](docs/features/README.md)
+- [License](#license)
 
 ---
 
@@ -68,8 +92,14 @@ NYXPROXY_BACKEND_URL="https://my-backend.example.com" cargo tauri build
 | **Macros** | Phase 5 | Recorded chains of requests for auth + state replay. |
 | **Reporting** | Phase 5 | Markdown / HTML / PDF export of selected issues. |
 | **AI Assistant** | Phase 1–5 | Single panel; switches between Explain / Vulns / Payloads / Chat modes per tool. |
+| **JWT toolkit** | Phase 6 | Decode/encode, HS256 brute-force, `alg=none` generator, RSA↔HMAC confusion detection. See [docs/features/jwt-toolkit.md](docs/features/jwt-toolkit.md). |
+| **Workspaces** (.nyxproxy) | Phase 6 | Save and reload an entire session — history + scope + issues + notes — as a zstd-compressed file with the `NYXPRJ` magic header. |
+| **OWASP Top 10 mapping** | Phase 6 | Every finding is auto-categorised against the OWASP Top 10 (2021) — both client-side (Rust) and server-side (`/findings/categorize-owasp`). |
+| **CVE / CWE mapping** | Phase 6 | Backend route `/findings/map-cve` returns deterministic CVE/CWE associations for a finding description (offline, no API call). |
+| **Risk scoring** | Phase 6 | Deterministic 0–100 score combining severity, confidence and OWASP-category bias; aggregate summary per workspace. |
+| **Command palette (Ctrl+K)** | Phase 6 | Fuzzy command search over every page and action; recents tracked in `localStorage`. |
 
-> ✅ All five phases are landed on the `main` branch — this README's *Roadmap* below tracks what's queued next.
+> All Phase 1-6 features are landed on the `main` branch — this README's *Roadmap* below tracks what's queued next.
 
 ---
 
