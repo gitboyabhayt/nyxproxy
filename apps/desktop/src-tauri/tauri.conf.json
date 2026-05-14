@@ -16,8 +16,8 @@
         "title": "NyxProxy",
         "width": 1440,
         "height": 900,
-        "minWidth": 1024,
-        "minHeight": 640,
+        "minWidth": 720,
+        "minHeight": 520,
         "fullscreen": false,
         "resizable": true,
         "decorations": true,
@@ -39,12 +39,21 @@
     "homepage": "https://github.com/gitboyabhayt/nyxproxy",
     "license": "MIT",
     "licenseFile": "../../../LICENSE",
+    "copyright": "© NyxProxy Contributors",
     "icon": [
-      "icons/icon.png"
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns",
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png"
     ],
     "linux": {
       "deb": {
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"]
+        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "section": "devel",
+        "priority": "optional"
       },
       "appimage": {
         "bundleMediaFramework": false
@@ -53,7 +62,18 @@
     "windows": {
       "nsis": {
         "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine"
+        "installMode": "currentUser",
+        "displayLanguageSelector": false,
+        "compression": "lzma",
+        "languages": ["English"],
+        "startMenuFolder": "NyxProxy"
+      },
+      "wix": {
+        "language": ["en-US"]
+      },
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
       }
     }
   },

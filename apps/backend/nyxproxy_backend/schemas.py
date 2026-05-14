@@ -93,3 +93,119 @@ class AnalyzeResponse(BaseModel):
     provider: str
     model: str
     content: str
+
+
+# ---------------------------------------------------------------------------
+# AI auto-attack / chained scan / fuzz mutator (PR #6)
+# ---------------------------------------------------------------------------
+
+
+VulnClass = Literal[
+    "sqli",
+    "xss",
+    "ssrf",
+    "lfi",
+    "rce",
+    "open_redirect",
+    "ssti",
+    "xxe",
+    "auth_bypass",
+    "idor",
+    "csrf",
+    "jwt",
+    "deserialization",
+    "graphql_injection",
+    "nosql",
+    "log4shell",
+    "prototype_pollution",
+    "race_condition",
+]
+
+
+class AutoAttackRequestBody(BaseModel):
+    """Generate a *ranked* attack plan for a captured request."""
+
+    request: HttpRequestPayload
+    response: HttpResponsePayload | None = None
+    # Optional hints
+    suspected: list[VulnClass] | None = Field(
+        default=None,
+        description="If provided, restrict the plan to these vuln classes.",
+    )
+    payloads_per_class: int = Field(default=8, ge=1, le=40)
+    provider: str | None = None
+    model: str | None = None
+
+
+class AttackPayload(BaseModel):
+    payload: str
+    rationale: str
+    exploitability: int = Field(
+        ge=0, le=100, description="0-100 ranking score; higher = more likely to succeed."
+    )
+
+
+class AttackVector(BaseModel):
+    vuln: VulnClass
+    parameter: str
+    location: Literal["query", "body", "header", "cookie", "path"]
+    severity: Literal["info", "low", "medium", "high", "critical"]
+    payloads: list[AttackPayload]
+
+
+class AutoAttackPlan(BaseModel):
+    summary: str
+    vectors: list[AttackVector]
+    provider: str
+    model: str
+    fallbacks_tried: list[str] = Field(default_factory=list)
+
+
+class FuzzMutateRequestBody(BaseModel):
+    """AI-generated mutations for a single seed input."""
+
+    seed: str
+    parameter: str | None = None
+    attack_type: VulnClass | Literal["auto"] = "auto"
+    count: int = Field(default=20, ge=1, le=200)
+    provider: str | None = None
+    model: str | None = None
+
+
+class FuzzMutation(BaseModel):
+    payload: str
+    technique: str
+    bypasses: list[str] = Field(default_factory=list)
+
+
+class FuzzMutateResponse(BaseModel):
+    mutations: list[FuzzMutation]
+    provider: str
+    model: str
+    fallbacks_tried: list[str] = Field(default_factory=list)
+
+
+class ChainScanStep(BaseModel):
+    kind: Literal["passive", "active", "report"]
+    title: str
+    issues: list[str] = Field(default_factory=list)
+    payloads_used: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class ChainScanRequestBody(BaseModel):
+    request: HttpRequestPayload
+    response: HttpResponsePayload | None = None
+    issues_seen: list[str] = Field(default_factory=list)
+    provider: str | None = None
+    model: str | None = None
+
+
+class ChainScanResponse(BaseModel):
+    summary: str
+    risk_score: int = Field(ge=0, le=100)
+    steps: list[ChainScanStep]
+    next_actions: list[str]
+    provider: str
+    model: str
+    fallbacks_tried: list[str] = Field(default_factory=list)

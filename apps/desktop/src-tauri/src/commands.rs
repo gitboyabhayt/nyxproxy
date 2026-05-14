@@ -7,23 +7,29 @@ use nyxproxy_core::decoder::{self, Codec, DecoderResult};
 use nyxproxy_core::history::HistoryEntry;
 use nyxproxy_core::intercept::InterceptEntry;
 use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
+use nyxproxy_core::jwt::{self, JwtBruteResult, JwtDecoded, JwtFinding};
 use nyxproxy_core::macros::{run_macro, Macro, MacroRunResult};
 use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
+use nyxproxy_core::owasp::{self, OwaspCategory};
 use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
 use nyxproxy_core::repeater::{self, RepeaterRequest};
 use nyxproxy_core::report::{self, Report};
+use nyxproxy_core::risk;
 use nyxproxy_core::scanner::{self, Issue};
 use nyxproxy_core::sequencer::{self, SequencerReport};
 use nyxproxy_core::spider::{crawl as spider_crawl, SpiderConfig, SpiderHit};
+use nyxproxy_core::websocket::{WsDirection, WsFrame, WsOpcode, WsSession};
+use nyxproxy_core::workspace::{self, Workspace};
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::ai::{
-    AiClient, AnalyzeRequestBody, AnalyzeResponse, ChatRequest, ChatResponse,
-    PayloadRequestBody, ProvidersResponse,
+    AiClient, AnalyzeRequestBody, AnalyzeResponse, AutoAttackPlan, AutoAttackRequestBody,
+    ChainScanRequestBody, ChainScanResponse, ChatRequest, ChatResponse, FuzzMutateRequestBody,
+    FuzzMutateResponse, PayloadRequestBody, ProvidersResponse,
 };
 use crate::settings::Settings;
 use crate::state::AppState;
@@ -322,6 +328,33 @@ pub async fn ai_list_providers(
 }
 
 #[tauri::command]
+pub async fn ai_auto_attack(
+    state: State<'_, AppStateSlot>,
+    body: AutoAttackRequestBody,
+) -> Result<AutoAttackPlan, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.auto_attack(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_fuzz_mutate(
+    state: State<'_, AppStateSlot>,
+    body: FuzzMutateRequestBody,
+) -> Result<FuzzMutateResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.fuzz_mutate(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_chain_scan(
+    state: State<'_, AppStateSlot>,
+    body: ChainScanRequestBody,
+) -> Result<ChainScanResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.chain_scan(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub fn scanner_scan_history(state: State<'_, AppStateSlot>) -> Result<Vec<Issue>, String> {
     with_state(&state, |s| {
         let mut out = Vec::new();
@@ -490,4 +523,221 @@ pub fn settings_set(
     settings: Settings,
 ) -> Result<(), String> {
     with_state(&state, |s| s.settings.replace(settings))
+}
+
+// ---------------------------------------------------------------------------
+// JWT toolkit
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn jwt_decode_cmd(token: String) -> Result<JwtDecoded, String> {
+    jwt::decode(&token).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn jwt_analyze_cmd(token: String) -> Result<Vec<JwtFinding>, String> {
+    jwt::analyze(&token).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JwtEncodeArgs {
+    pub header: serde_json::Value,
+    pub payload: serde_json::Value,
+    #[serde(default)]
+    pub secret: String,
+}
+
+#[tauri::command]
+pub fn jwt_encode_hs256_cmd(args: JwtEncodeArgs) -> Result<String, String> {
+    jwt::encode_hs256(&args.header, &args.payload, args.secret.as_bytes())
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn jwt_encode_none_cmd(args: JwtEncodeArgs) -> Result<String, String> {
+    jwt::encode_none(&args.header, &args.payload).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct JwtBruteArgs {
+    pub token: String,
+    pub candidates: Vec<String>,
+}
+
+#[tauri::command]
+pub fn jwt_brute_hs256_cmd(args: JwtBruteArgs) -> Result<JwtBruteResult, String> {
+    jwt::brute_hs256(&args.token, &args.candidates).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Risk score / OWASP enrichment
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Serialize)]
+pub struct IssueRisk {
+    pub rule_id: String,
+    pub score: u8,
+    pub owasp_code: &'static str,
+    pub owasp_title: &'static str,
+}
+
+#[tauri::command]
+pub fn risk_score_issue_cmd(issue: Issue) -> Result<IssueRisk, String> {
+    let cat = owasp::category_for_rule(&issue.rule_id);
+    Ok(IssueRisk {
+        rule_id: issue.rule_id.clone(),
+        score: risk::score_issue(&issue),
+        owasp_code: cat.code(),
+        owasp_title: cat.title(),
+    })
+}
+
+#[derive(Debug, Serialize)]
+pub struct RiskSummary {
+    pub aggregate: u8,
+    pub by_owasp: Vec<OwaspBucket>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OwaspBucket {
+    pub code: &'static str,
+    pub title: &'static str,
+    pub count: usize,
+    pub max_score: u8,
+}
+
+#[tauri::command]
+pub fn risk_summary_cmd(issues: Vec<Issue>) -> Result<RiskSummary, String> {
+    let aggregate = risk::score_aggregate(&issues);
+    let mut buckets: std::collections::BTreeMap<&'static str, OwaspBucket> =
+        std::collections::BTreeMap::new();
+    for issue in &issues {
+        let cat = owasp::category_for_rule(&issue.rule_id);
+        let score = risk::score_issue(issue);
+        let entry = buckets.entry(cat.code()).or_insert(OwaspBucket {
+            code: cat.code(),
+            title: cat.title(),
+            count: 0,
+            max_score: 0,
+        });
+        entry.count += 1;
+        if score > entry.max_score {
+            entry.max_score = score;
+        }
+    }
+    Ok(RiskSummary {
+        aggregate,
+        by_owasp: buckets.into_values().collect(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Workspace save / load
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+pub struct WorkspaceSaveArgs {
+    pub path: String,
+    #[serde(default)]
+    pub name: String,
+    #[serde(default)]
+    pub notes: String,
+    #[serde(default)]
+    pub scope: Vec<String>,
+}
+
+#[tauri::command]
+pub fn workspace_save_cmd(
+    state: State<'_, AppStateSlot>,
+    args: WorkspaceSaveArgs,
+) -> Result<String, String> {
+    let (history, issues) = with_state(&state, |s| {
+        let history = s.history.list();
+        let issues: Vec<Issue> = history.iter().flat_map(|e| scanner::scan(&e.flow)).collect();
+        (history, issues)
+    })?;
+    let mut workspace = Workspace {
+        name: args.name,
+        notes: args.notes,
+        scope: args.scope,
+        history,
+        issues,
+        ..Default::default()
+    };
+    workspace.touch(env!("CARGO_PKG_VERSION"));
+    let path = std::path::PathBuf::from(&args.path);
+    workspace::save_to_path(&path, &workspace).map_err(|e| e.to_string())?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub fn workspace_load_cmd(path: String) -> Result<Workspace, String> {
+    let path = std::path::PathBuf::from(path);
+    workspace::load_from_path(&path).map_err(|e| e.to_string())
+}
+
+// silence "unused" lint when OwaspCategory is only used transitively
+#[allow(dead_code)]
+fn _owasp_keepalive() -> OwaspCategory {
+    OwaspCategory::Other
+}
+
+// ---------------------------------------------------------------------------
+// WebSocket viewer (Feature A)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn ws_list_sessions(state: State<'_, AppStateSlot>) -> Result<Vec<WsSession>, String> {
+    with_state(&state, |s| s.proxy.ws_store.list_sessions())
+}
+
+#[tauri::command]
+pub fn ws_get_session(
+    state: State<'_, AppStateSlot>,
+    id: String,
+) -> Result<Option<WsSession>, String> {
+    let id = Uuid::parse_str(&id).map_err(|e| format!("bad session id: {e}"))?;
+    with_state(&state, |s| s.proxy.ws_store.get_session(id))
+}
+
+#[tauri::command]
+pub fn ws_frames(
+    state: State<'_, AppStateSlot>,
+    session_id: String,
+) -> Result<Vec<WsFrame>, String> {
+    let id = Uuid::parse_str(&session_id).map_err(|e| format!("bad session id: {e}"))?;
+    with_state(&state, |s| s.proxy.ws_store.frames_for(id))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WsReplayArgs {
+    pub session_id: String,
+    pub direction: WsDirection,
+    pub opcode: WsOpcode,
+    /// Base64-encoded payload. Empty string is permitted (e.g. ping).
+    pub payload_b64: Option<String>,
+    /// UTF-8 text payload. Mutually exclusive with `payload_b64`.
+    pub text: Option<String>,
+}
+
+#[tauri::command]
+pub fn ws_replay(state: State<'_, AppStateSlot>, args: WsReplayArgs) -> Result<(), String> {
+    use base64::Engine;
+    let id = Uuid::parse_str(&args.session_id).map_err(|e| format!("bad session id: {e}"))?;
+    let bytes = if let Some(b64) = args.payload_b64 {
+        base64::engine::general_purpose::STANDARD
+            .decode(b64)
+            .map_err(|e| format!("invalid base64: {e}"))?
+    } else if let Some(text) = args.text {
+        text.into_bytes()
+    } else {
+        Vec::new()
+    };
+    with_state(&state, |s| {
+        s.proxy
+            .ws_store
+            .replay(id, args.direction, args.opcode, bytes)
+    })?
+    .map_err(|e| e.to_string())
 }

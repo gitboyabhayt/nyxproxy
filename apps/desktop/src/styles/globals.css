@@ -98,8 +98,9 @@ code,
 
 /* App layout primitives */
 .app {
+  --sidebar-width: 220px;
   display: grid;
-  grid-template-columns: 220px 1fr;
+  grid-template-columns: var(--sidebar-width) 1fr;
   grid-template-rows: 36px 1fr 24px;
   grid-template-areas:
     "title  title"
@@ -107,6 +108,30 @@ code,
     "status  status";
   height: 100vh;
   width: 100vw;
+}
+
+/* Sidebar toggle button — only visible on narrow screens. */
+.title-bar .menu-toggle {
+  display: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 4px;
+  padding: 4px 6px;
+  margin-right: 4px;
+}
+
+.title-bar .menu-toggle:hover {
+  background: var(--bg-2);
+  color: var(--text);
+}
+
+.sidebar-scrim {
+  display: none;
+  position: fixed;
+  inset: 36px 0 24px 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 19;
 }
 
 .title-bar {
@@ -702,4 +727,539 @@ textarea.code-input {
   border-radius: 3px;
   font-size: 12px;
   color: var(--text-dim);
+}
+
+/* ============================================================== */
+/* Responsive breakpoints                                          */
+/* ============================================================== */
+
+/* Tablet & narrow laptop — slim the sidebar and tighten paddings. */
+@media (max-width: 1200px) {
+  .app {
+    --sidebar-width: 184px;
+  }
+
+  .sidebar .nav-item {
+    padding: 6px 12px;
+    font-size: 12.5px;
+  }
+
+  .sidebar .nav-section {
+    padding: 8px 12px 3px;
+  }
+
+  .section {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+}
+
+/* Tablet portrait — collapse to icon rail. */
+@media (max-width: 960px) {
+  .app {
+    --sidebar-width: 56px;
+  }
+
+  .sidebar .nav-item {
+    padding: 8px 0;
+    justify-content: center;
+    gap: 0;
+    border-left: none;
+    border-right: 2px solid transparent;
+  }
+
+  .sidebar .nav-item.active {
+    border-right-color: var(--accent);
+  }
+
+  .sidebar .nav-item span:not(.badge) {
+    display: none;
+  }
+
+  .sidebar .nav-item .badge {
+    display: none;
+  }
+
+  .sidebar .nav-section {
+    text-align: center;
+    padding: 8px 0 3px;
+    font-size: 9px;
+  }
+
+  .title-bar .brand span:not(.brand-text) {
+    /* keep the version label visible */
+  }
+
+  .title-bar .status-pill span:last-child {
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .toolbar {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 10px;
+  }
+
+  .section {
+    padding: 12px 14px;
+  }
+
+  .cards {
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  }
+
+  .kv {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .kv .k {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+}
+
+/* Phone / very narrow — sidebar becomes an overlay drawer. */
+@media (max-width: 720px) {
+  .app {
+    --sidebar-width: 0px;
+    grid-template-columns: 1fr;
+    grid-template-rows: 40px 1fr 24px;
+    grid-template-areas:
+      "title"
+      "main"
+      "status";
+  }
+
+  .title-bar {
+    padding: 0 8px;
+    gap: 8px;
+  }
+
+  .title-bar .menu-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .title-bar .brand span:first-of-type {
+    /* keep brand text only */
+  }
+
+  .title-bar .filler {
+    flex: 1;
+  }
+
+  .sidebar {
+    position: fixed;
+    top: 40px;
+    bottom: 24px;
+    left: 0;
+    width: 240px;
+    transform: translateX(-100%);
+    transition: transform 160ms ease;
+    z-index: 20;
+    box-shadow: 4px 0 12px rgba(0, 0, 0, 0.4);
+  }
+
+  .app.sidebar-open .sidebar {
+    transform: translateX(0);
+  }
+
+  .app.sidebar-open .sidebar-scrim {
+    display: block;
+  }
+
+  .sidebar .nav-item {
+    padding: 9px 14px;
+    justify-content: flex-start;
+    gap: 10px;
+    border-right: none;
+    border-left: 2px solid transparent;
+  }
+
+  .sidebar .nav-item.active {
+    border-left-color: var(--accent);
+    border-right-color: transparent;
+  }
+
+  .sidebar .nav-item span:not(.badge),
+  .sidebar .nav-item .badge {
+    display: inline-flex;
+  }
+
+  .sidebar .nav-section {
+    text-align: left;
+    padding: 10px 12px 4px;
+    font-size: 10px;
+  }
+
+  .main {
+    grid-area: main;
+  }
+
+  .sub-tabs {
+    overflow-x: auto;
+  }
+
+  .sub-tab,
+  .main-tabs .tab {
+    padding: 8px 12px;
+    flex-shrink: 0;
+  }
+
+  .section {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 4px 8px;
+    font-size: 11px;
+  }
+
+  /* SplitPane: stack vertically on phones so each pane has full width. */
+  .split:not(.vertical) {
+    flex-direction: column;
+  }
+
+  .split:not(.vertical) > .split-pane {
+    flex-basis: auto !important;
+    min-height: 200px;
+  }
+
+  .split:not(.vertical) > .split-divider {
+    display: none;
+  }
+
+  .status-bar {
+    font-size: 10.5px;
+    gap: 8px;
+    padding: 0 8px;
+    overflow: hidden;
+  }
+
+  .status-bar > :nth-child(n + 5) {
+    display: none;
+  }
+}
+
+/* Pointer-coarse devices (touch) — bigger split divider grab targets. */
+@media (pointer: coarse) {
+  .split-divider {
+    flex: 0 0 8px;
+  }
+
+  .split.vertical > .split-divider {
+    flex: 0 0 8px;
+  }
+}
+
+/* Honour user's reduced-motion preference. */
+@media (prefers-reduced-motion: reduce) {
+  .sidebar {
+    transition: none;
+  }
+}
+
+/* --- Command Palette (Feature I) ------------------------------------- */
+
+.command-palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  animation: cp-fade 100ms ease-out;
+}
+
+@keyframes cp-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.command-palette {
+  width: min(620px, 92vw);
+  max-height: 70vh;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  box-shadow: 0 24px 48px rgba(0, 0, 0, 0.45);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.command-palette-input {
+  appearance: none;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text);
+  font-size: 15px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.command-palette-input::placeholder {
+  color: var(--text-muted);
+}
+
+.command-palette-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.command-palette-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.command-palette-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.command-palette-item.active,
+.command-palette-item:hover {
+  background: var(--bg-elevated);
+}
+
+.command-palette-label {
+  flex: 1;
+}
+
+.command-palette-group {
+  color: var(--text-muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.command-palette-shortcut {
+  display: inline-flex;
+  padding: 2px 6px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+.command-palette-foot {
+  display: flex;
+  gap: 16px;
+  padding: 6px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  color: var(--text-muted);
+}
+
+@media (max-width: 720px) {
+  .command-palette {
+    width: 96vw;
+    max-height: 80vh;
+  }
+  .command-palette-backdrop {
+    padding-top: 6vh;
+  }
+}
+
+/* ---- WebSockets page (Feature A) ---- */
+
+.ws-layout {
+  display: grid;
+  grid-template-columns: 220px 1fr 320px;
+  gap: 12px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ws-sessions {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--bg-panel);
+  overflow: auto;
+}
+
+.ws-sessions h3 { margin: 0 0 8px; font-size: 12px; color: var(--text-muted); }
+.ws-sessions .muted { font-size: 12px; color: var(--text-muted); }
+
+.ws-session-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ws-session-item {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.ws-session-item:hover { background: var(--bg-deep); }
+.ws-session-item.active { border-color: var(--accent); background: var(--bg-deep); }
+.ws-session-host { font-weight: 600; font-size: 12px; }
+.ws-session-meta { font-size: 10.5px; color: var(--text-muted); }
+.ws-session-url {
+  font-size: 10.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ws-frames-pane {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-panel);
+  min-height: 0;
+}
+
+.ws-session-banner {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.ws-session-banner .muted { font-size: 10.5px; color: var(--text-muted); }
+
+.ws-frames-table-wrap {
+  flex: 1;
+  overflow: auto;
+}
+.ws-frames-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.ws-frames-table th,
+.ws-frames-table td {
+  text-align: left;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.ws-frames-table th {
+  position: sticky;
+  top: 0;
+  background: var(--bg-deep);
+  font-weight: 600;
+  color: var(--text-muted);
+  z-index: 1;
+}
+.ws-row { cursor: pointer; }
+.ws-row:hover { background: var(--bg-deep); }
+.ws-row.selected { background: var(--bg-deep); outline: 1px solid var(--accent); }
+.ws-preview {
+  max-width: 0;
+  width: 60%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+}
+.ws-tag {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 0 6px;
+  font-size: 10px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 3px;
+}
+
+.ws-frames-foot {
+  padding: 6px 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 11.5px;
+}
+
+.ws-detail-pane {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px;
+  background: var(--bg-panel);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ws-detail-pane h3 { margin: 0; font-size: 12px; color: var(--text-muted); }
+.ws-detail { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.ws-payload {
+  background: var(--bg-deep);
+  padding: 8px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.ws-replay { display: flex; flex-direction: column; gap: 6px; }
+.ws-replay-row { display: flex; gap: 6px; }
+.ws-replay select,
+.ws-replay textarea {
+  flex: 1;
+  border: 1px solid var(--border);
+  background: var(--bg-deep);
+  color: var(--text-primary);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 12px;
+}
+.ws-replay textarea {
+  font-family: var(--font-mono);
+  resize: vertical;
+}
+.ws-empty { padding: 24px; text-align: center; }
+
+@media (max-width: 1200px) {
+  .ws-layout { grid-template-columns: 200px 1fr 280px; }
+}
+@media (max-width: 960px) {
+  .ws-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 1fr auto;
+  }
+  .ws-sessions { max-height: 160px; }
+  .ws-detail-pane { max-height: 280px; }
 }

@@ -15,7 +15,9 @@ from .base import Provider, call_openai_compatible
 
 class HuggingFaceProvider(Provider):
     name = "huggingface"
-    description = "HuggingFace Inference Router — works with most chat-completion models on the Hub."
+    description = (
+        "HuggingFace Inference Router — works with most chat-completion models on the Hub."
+    )
     default_model = "meta-llama/Llama-3.3-70B-Instruct"
     endpoint = "https://router.huggingface.co/v1/chat/completions"
 

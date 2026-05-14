@@ -1,6 +1,13 @@
 import { useState } from "react";
 
+import { DEFAULT_BACKEND_URL, probeBackend } from "@/lib/backend";
 import { useAppStore } from "@/state/store";
+
+type HealthState =
+  | { kind: "idle" }
+  | { kind: "checking" }
+  | { kind: "ok"; detail: string; latencyMs: number }
+  | { kind: "error"; detail: string };
 
 export function UserOptionsPage() {
   const settings = useAppStore((s) => s.settings);
@@ -11,6 +18,7 @@ export function UserOptionsPage() {
   const toast = useAppStore((s) => s.toast);
 
   const [draft, setDraft] = useState(settings);
+  const [health, setHealth] = useState<HealthState>({ kind: "idle" });
 
   if (!settings || !draft) return <div className="banner">Loading user options…</div>;
 
@@ -22,6 +30,27 @@ export function UserOptionsPage() {
     } catch (err) {
       toast("error", `Save failed: ${err}`);
     }
+  };
+
+  const testConnection = async () => {
+    setHealth({ kind: "checking" });
+    const result = await probeBackend(draft.backend_url, draft.backend_token);
+    if (result.ok) {
+      setHealth({
+        kind: "ok",
+        detail: result.detail,
+        latencyMs: result.latencyMs,
+      });
+      toast("info", `Backend reachable in ${result.latencyMs} ms.`);
+    } else {
+      setHealth({ kind: "error", detail: result.detail });
+      toast("error", `Backend unreachable: ${result.detail}`);
+    }
+  };
+
+  const resetBackendUrl = () => {
+    setDraft({ ...draft, backend_url: DEFAULT_BACKEND_URL });
+    setHealth({ kind: "idle" });
   };
 
   const downloadCa = () => {
@@ -49,13 +78,56 @@ export function UserOptionsPage() {
         <div className="panel-body" style={{ padding: 12 }}>
           <div className="field">
             <label className="label">Backend URL</label>
-            <input
-              value={draft.backend_url}
-              onChange={(e) => setDraft({ ...draft, backend_url: e.target.value })}
-            />
+            <div style={{ display: "flex", gap: 6 }}>
+              <input
+                style={{ flex: 1 }}
+                value={draft.backend_url}
+                onChange={(e) =>
+                  setDraft({ ...draft, backend_url: e.target.value })
+                }
+                spellCheck={false}
+              />
+              <button
+                className="btn small"
+                onClick={resetBackendUrl}
+                title="Reset to hosted Render backend"
+              >
+                Reset
+              </button>
+              <button
+                className="btn small"
+                onClick={testConnection}
+                disabled={health.kind === "checking"}
+              >
+                {health.kind === "checking" ? "Testing…" : "Test connection"}
+              </button>
+            </div>
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>
-              Default: http://127.0.0.1:8765 — point this at your deployed NyxProxy backend (e.g. Render URL).
+              Default: <code className="mono">{DEFAULT_BACKEND_URL}</code> — the
+              hosted AI gateway. Point this at your own deployment for self-hosting.
             </span>
+            {health.kind === "ok" && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--success)",
+                  marginTop: 4,
+                }}
+              >
+                Backend reachable · {health.detail} · {health.latencyMs} ms
+              </span>
+            )}
+            {health.kind === "error" && (
+              <span
+                style={{
+                  fontSize: 11,
+                  color: "var(--danger)",
+                  marginTop: 4,
+                }}
+              >
+                {health.detail}
+              </span>
+            )}
           </div>
           <div className="field">
             <label className="label">Backend bearer token (optional)</label>

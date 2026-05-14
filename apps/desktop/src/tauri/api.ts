@@ -7,6 +7,7 @@
  * webview.
  */
 
+import { DEFAULT_BACKEND_URL } from "@/lib/backend";
 import type {
   AiAnalyzeRequestBody,
   AiAnalyzeResponse,
@@ -22,15 +23,31 @@ import type {
   IntruderConfig,
   InterceptEntry,
   Issue,
+  IssueRisk,
+  JwtBruteResult,
+  JwtDecoded,
+  JwtFinding,
   ProxyConfig,
   ProxyStatus,
   RepeaterRequest,
   CapturedResponse,
   ReportPayload,
+  RiskSummary,
   SequencerReport,
   Settings,
   SpiderConfig,
   SpiderHit,
+  Workspace,
+  WsDirection,
+  WsFrame,
+  WsOpcode,
+  WsSession,
+  AutoAttackPlan,
+  ChainScanResponse,
+  FuzzMutateResponse,
+  HttpRequestPayload,
+  HttpResponsePayload,
+  VulnClass,
 } from "./types";
 
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -142,7 +159,36 @@ export const AiApi = {
     invoke<AiAnalyzeResponse>("ai_find_vulns", { body }),
   generatePayloads: (body: AiPayloadRequestBody) =>
     invoke<AiAnalyzeResponse>("ai_generate_payloads", { body }),
+  autoAttack: (body: AiAutoAttackRequestBody) =>
+    invoke<AutoAttackPlan>("ai_auto_attack", { body }),
+  fuzzMutate: (body: AiFuzzMutateRequestBody) =>
+    invoke<FuzzMutateResponse>("ai_fuzz_mutate", { body }),
+  chainScan: (body: AiChainScanRequestBody) =>
+    invoke<ChainScanResponse>("ai_chain_scan", { body }),
 };
+
+export interface AiAutoAttackRequestBody {
+  request: HttpRequestPayload;
+  response?: HttpResponsePayload | null;
+  suspected?: VulnClass[];
+  payloads_per_class: number;
+  provider?: string | null;
+}
+
+export interface AiFuzzMutateRequestBody {
+  seed: string;
+  parameter?: string | null;
+  attack_type: string;
+  count: number;
+  provider?: string | null;
+}
+
+export interface AiChainScanRequestBody {
+  request: HttpRequestPayload;
+  response?: HttpResponsePayload | null;
+  issues_seen?: string[];
+  provider?: string | null;
+}
 
 export const SettingsApi = {
   get: () => invoke<Settings>("settings_get"),
@@ -204,6 +250,64 @@ export const ReportApi = {
   renderJson: (report: ReportPayload) => invoke<string>("report_render_json", { report }),
 };
 
+export const JwtApi = {
+  decode: (token: string) => invoke<JwtDecoded>("jwt_decode_cmd", { token }),
+  analyze: (token: string) => invoke<JwtFinding[]>("jwt_analyze_cmd", { token }),
+  encodeHs256: (header: Record<string, unknown>, payload: Record<string, unknown>, secret: string) =>
+    invoke<string>("jwt_encode_hs256_cmd", { args: { header, payload, secret } }),
+  encodeNone: (header: Record<string, unknown>, payload: Record<string, unknown>) =>
+    invoke<string>("jwt_encode_none_cmd", { args: { header, payload, secret: "" } }),
+  bruteHs256: (token: string, candidates: string[]) =>
+    invoke<JwtBruteResult>("jwt_brute_hs256_cmd", { args: { token, candidates } }),
+};
+
+export const RiskApi = {
+  scoreIssue: (issue: Issue) => invoke<IssueRisk>("risk_score_issue_cmd", { issue }),
+  summary: (issues: Issue[]) => invoke<RiskSummary>("risk_summary_cmd", { issues }),
+};
+
+export const WorkspaceApi = {
+  save: (args: { path: string; name?: string; notes?: string; scope?: string[] }) =>
+    invoke<string>("workspace_save_cmd", {
+      args: {
+        path: args.path,
+        name: args.name ?? "",
+        notes: args.notes ?? "",
+        scope: args.scope ?? [],
+      },
+    }),
+  load: (path: string) => invoke<Workspace>("workspace_load_cmd", { path }),
+};
+
+export const WebSocketApi = {
+  listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
+  getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
+  frames: (sessionId: string) => invoke<WsFrame[]>("ws_frames", { sessionId }),
+  replay: (args: {
+    sessionId: string;
+    direction: WsDirection;
+    opcode: WsOpcode;
+    payloadB64?: string;
+    text?: string;
+  }) =>
+    invoke<void>("ws_replay", {
+      args: {
+        sessionId: args.sessionId,
+        direction: args.direction,
+        opcode: args.opcode,
+        payloadB64: args.payloadB64 ?? null,
+        text: args.text ?? null,
+      },
+    }),
+  subscribe: (handler: (event: WsEvent) => void) =>
+    listen<WsEvent>("nyxproxy://websocket", handler),
+};
+
+export type WsEvent =
+  | { kind: "session_started"; session: WsSession }
+  | { kind: "frame"; frame: WsFrame }
+  | { kind: "session_ended"; session: WsSession };
+
 /* ---------- Mock bridge for headless browser preview ---------- */
 
 function makeMockBridge(): TauriBridge {
@@ -218,7 +322,7 @@ function makeMockBridge(): TauriBridge {
   };
   let settings: Settings = {
     proxy: proxyConfig,
-    backend_url: "http://127.0.0.1:8765",
+    backend_url: DEFAULT_BACKEND_URL,
     backend_token: null,
     default_ai_provider: "groq",
     theme: "dark",
@@ -353,11 +457,71 @@ function makeMockBridge(): TauriBridge {
           content: "Running outside the Tauri shell — connect via npm run tauri:dev for real AI calls.",
           choices: [{ message: { role: "assistant", content: "mock response" } }],
         } as unknown as never;
+      case "ai_auto_attack":
+        return {
+          summary: "Mock plan — connect via npm run tauri:dev for real AI calls.",
+          vectors: [],
+          provider: "mock",
+          model: "mock",
+          fallbacks_tried: [],
+        } as unknown as never;
+      case "ai_fuzz_mutate":
+        return {
+          mutations: [],
+          provider: "mock",
+          model: "mock",
+          fallbacks_tried: [],
+        } as unknown as never;
+      case "ai_chain_scan":
+        return {
+          summary: "Mock chain scan",
+          risk_score: 0,
+          steps: [],
+          next_actions: [],
+          provider: "mock",
+          model: "mock",
+          fallbacks_tried: [],
+        } as unknown as never;
       case "settings_get":
         return settings as unknown as never;
       case "settings_set":
         settings = (args as { settings: Settings }).settings;
         return undefined as unknown as never;
+      case "jwt_decode_cmd":
+        return {
+          header: { alg: "HS256", typ: "JWT" },
+          payload: { sub: "mock", iat: 0 },
+          signature_b64: "",
+          signing_input: "mock.mock",
+        } as unknown as never;
+      case "jwt_analyze_cmd":
+        return [] as unknown as never;
+      case "jwt_encode_hs256_cmd":
+      case "jwt_encode_none_cmd":
+        return "mock.token.signature" as unknown as never;
+      case "jwt_brute_hs256_cmd":
+        return { tried: 0, secret: null, elapsed_ms: 0 } as unknown as never;
+      case "risk_score_issue_cmd":
+        return {
+          rule_id: "mock",
+          score: 50,
+          owasp_code: "OTH",
+          owasp_title: "Other",
+        } as unknown as never;
+      case "risk_summary_cmd":
+        return { aggregate: 0, by_owasp: [] } as unknown as never;
+      case "workspace_save_cmd":
+        return "/mock/workspace.nyxproxy" as unknown as never;
+      case "workspace_load_cmd":
+        return {
+          name: "mock",
+          notes: "",
+          scope: [],
+          history: [],
+          issues: [],
+          saved_at: new Date().toISOString(),
+          app_version: "0.0.0",
+        } as unknown as never;
       default:
         throw new Error(`unsupported mock invoke: ${cmd}`);
     }

@@ -21,11 +21,11 @@ Limitations:
 
 from __future__ import annotations
 
+import contextlib
 import os
 import secrets
 import time
 from collections import OrderedDict, deque
-from typing import Deque
 
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -57,10 +57,10 @@ class CollaboratorSession(BaseModel):
 class _SessionState:
     def __init__(self) -> None:
         self.created_at = time.time()
-        self.pings: Deque[CollaboratorPing] = deque(maxlen=MAX_PINGS_PER_SESSION)
+        self.pings: deque[CollaboratorPing] = deque(maxlen=MAX_PINGS_PER_SESSION)
 
 
-_SESSIONS: "OrderedDict[str, _SessionState]" = OrderedDict()
+_SESSIONS: OrderedDict[str, _SessionState] = OrderedDict()
 
 
 def _new_session_id() -> str:
@@ -113,7 +113,9 @@ async def list_pings(session_id: str) -> list[CollaboratorPing]:
     methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"],
     include_in_schema=False,
 )
-async def collaborator_callback(request: Request, session_id: str, tail: str = "") -> dict[str, str]:
+async def collaborator_callback(
+    request: Request, session_id: str, tail: str = ""
+) -> dict[str, str]:
     state = _register(session_id)
     body = await request.body()
     preview = body[:256].decode("utf-8", errors="replace") if body else ""
@@ -138,7 +140,7 @@ async def collaborator_callback(request: Request, session_id: str, tail: str = "
     return {"recorded": "ok"}
 
 
-__all__ = ["router", "CollaboratorPing", "CollaboratorSession"]
+__all__ = ["CollaboratorPing", "CollaboratorSession", "router"]
 
 
 def _clear_state_for_tests() -> None:
@@ -155,8 +157,6 @@ def _force_max_sessions(value: int) -> None:
 
 
 # Allow tests to discover the env override path used in production
-if (env := os.environ.get("NYX_COLLAB_MAX_SESSIONS")):
-    try:
+if env := os.environ.get("NYX_COLLAB_MAX_SESSIONS"):
+    with contextlib.suppress(ValueError):
         MAX_SESSIONS = max(1, int(env))
-    except ValueError:
-        pass

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
   AlignLeft,
@@ -11,17 +11,22 @@ import {
   KeySquare,
   ListTree,
   type LucideIcon,
+  Menu,
   Plug,
+  Plug2,
   PlaySquare,
   Radio,
   Radar,
   Repeat,
   Settings as SettingsIcon,
   Shield,
+  Zap,
 } from "lucide-react";
 
+import { CommandPalette, type PaletteCommand } from "@/components/CommandPalette";
 import { Toasts } from "@/components/Toasts";
 import { AiAssistantPage } from "@/pages/AiAssistant";
+import { AiAttackPage } from "@/pages/AiAttack";
 import { CollaboratorPage } from "@/pages/Collaborator";
 import { ComparerPage } from "@/pages/Comparer";
 import { DashboardPage } from "@/pages/Dashboard";
@@ -36,6 +41,7 @@ import { RepeaterPage } from "@/pages/Repeater";
 import { SequencerPage } from "@/pages/Sequencer";
 import { TargetPage } from "@/pages/Target";
 import { UserOptionsPage } from "@/pages/UserOptions";
+import { WebSocketsPage } from "@/pages/WebSockets";
 import { useAppStore } from "@/state/store";
 
 type Page =
@@ -51,7 +57,9 @@ type Page =
   | "extender"
   | "collaborator"
   | "macros"
+  | "websockets"
   | "ai"
+  | "ai-attack"
   | "project-options"
   | "user-options";
 
@@ -76,7 +84,9 @@ const NAV: NavEntry[] = [
   { id: "extender", label: "Extender", icon: Plug, group: "tools" },
   { id: "collaborator", label: "Collaborator", icon: Radar, group: "tools" },
   { id: "macros", label: "Macros", icon: PlaySquare, group: "tools" },
+  { id: "websockets", label: "WebSockets", icon: Plug2, group: "tools" },
   { id: "ai", label: "AI Assistant", icon: Brain, group: "tools" },
+  { id: "ai-attack", label: "AI Attack", icon: Zap, group: "tools" },
   { id: "project-options", label: "Project options", icon: SettingsIcon, group: "options" },
   { id: "user-options", label: "User options", icon: KeySquare, group: "options" },
 ];
@@ -91,6 +101,8 @@ export function App() {
   const historyCount = useAppStore((s) => s.history.length);
 
   const [page, setPage] = useState<Page>("dashboard");
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     init();
@@ -99,13 +111,58 @@ export function App() {
   const running = proxyStatus?.running ?? false;
   const listen = proxyStatus?.listen_addr ?? "—";
 
+  const navigate = useCallback((next: Page) => {
+    setPage(next);
+    setSidebarOpen(false);
+  }, []);
+
   const tools = useMemo(() => NAV.filter((n) => n.group === "tools"), []);
   const options = useMemo(() => NAV.filter((n) => n.group === "options"), []);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      } else if (e.key === "Escape" && paletteOpen) {
+        setPaletteOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [paletteOpen]);
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const nav: PaletteCommand[] = NAV.map((n) => ({
+      id: `goto-${n.id}`,
+      label: `Go to ${n.label}`,
+      group: n.group === "tools" ? "Navigate" : "Options",
+      keywords: [n.id, n.label],
+      run: () => navigate(n.id),
+    }));
+    const actions: PaletteCommand[] = [
+      {
+        id: "action-start-proxy",
+        label: running ? "Stop proxy" : "Start proxy",
+        group: "Proxy",
+        shortcut: running ? "" : "",
+        run: () => (running ? stopProxy() : startProxy()),
+      },
+      {
+        id: "action-toggle-sidebar",
+        label: sidebarOpen ? "Close sidebar" : "Open sidebar",
+        group: "View",
+        run: () => setSidebarOpen((v) => !v),
+      },
+    ];
+    return [...nav, ...actions];
+  }, [navigate, running, startProxy, stopProxy, sidebarOpen]);
 
   const body = useMemo(() => {
     switch (page) {
       case "dashboard":
-        return <DashboardPage onNavigate={setPage} />;
+        return <DashboardPage onNavigate={navigate} />;
       case "target":
         return <TargetPage />;
       case "proxy":
@@ -128,8 +185,12 @@ export function App() {
         return <CollaboratorPage />;
       case "macros":
         return <MacrosPage />;
+      case "websockets":
+        return <WebSocketsPage />;
       case "ai":
         return <AiAssistantPage />;
+      case "ai-attack":
+        return <AiAttackPage />;
       case "project-options":
         return <ProjectOptionsPage />;
       case "user-options":
@@ -137,14 +198,21 @@ export function App() {
       default:
         return null;
     }
-  }, [page]);
+  }, [page, navigate]);
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarOpen ? "sidebar-open" : ""}`}>
       <div className="title-bar">
+        <button
+          className="menu-toggle"
+          aria-label="Toggle navigation"
+          onClick={() => setSidebarOpen((v) => !v)}
+        >
+          <Menu size={16} />
+        </button>
         <div className="brand">
           <div className="logo" />
-          <span>NyxProxy</span>
+          <span className="brand-text">NyxProxy</span>
           <span style={{ color: "var(--text-muted)", fontSize: 11 }}>0.1.0 · Phase 1-5</span>
         </div>
         <div className={`status-pill ${running ? "running" : ""}`}>
@@ -160,6 +228,12 @@ export function App() {
         </button>
       </div>
 
+      <div
+        className="sidebar-scrim"
+        onClick={() => setSidebarOpen(false)}
+        aria-hidden="true"
+      />
+
       <div className="sidebar">
         <div className="nav-section">Tools</div>
         {tools.map((n) => {
@@ -171,7 +245,8 @@ export function App() {
             <div
               key={n.id}
               className={`nav-item ${active ? "active" : ""}`}
-              onClick={() => setPage(n.id)}
+              onClick={() => navigate(n.id)}
+              title={n.label}
             >
               <Icon size={16} />
               <span>{n.label}</span>
@@ -192,7 +267,8 @@ export function App() {
             <div
               key={n.id}
               className={`nav-item ${active ? "active" : ""}`}
-              onClick={() => setPage(n.id)}
+              onClick={() => navigate(n.id)}
+              title={n.label}
             >
               <Icon size={16} />
               <span>{n.label}</span>
@@ -222,10 +298,17 @@ export function App() {
         <span style={{ color: "var(--border-strong)" }}>·</span>
         <span>{running ? `Running on ${listen}` : "Idle"}</span>
         <div style={{ flex: 1 }} />
-        <span>Phase 1 build — proxy core, AI gateway, full GUI</span>
+        <span>
+          Phase 1–5 build · proxy · scanner · intruder · macros · plugins · AI
+        </span>
       </div>
 
       <Toasts />
+      <CommandPalette
+        open={paletteOpen}
+        commands={paletteCommands}
+        onClose={() => setPaletteOpen(false)}
+      />
     </div>
   );
 }

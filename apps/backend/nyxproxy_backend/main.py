@@ -14,7 +14,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from . import __version__
 from .config import Settings, get_settings
 from .providers import build_providers
-from .routes import analyze, chat, collaborator, health, providers
+from .routes import ai_attack, analyze, chat, collaborator, findings, health, providers
 
 _BEARER_DEP = HTTPBearer(auto_error=False)
 _BEARER = Depends(_BEARER_DEP)
@@ -66,9 +66,12 @@ def create_app() -> FastAPI:
     app.include_router(providers.router, dependencies=[Depends(_enforce_token)])
     app.include_router(chat.router, dependencies=[Depends(_enforce_token)])
     app.include_router(analyze.router, dependencies=[Depends(_enforce_token)])
+    app.include_router(ai_attack.router, dependencies=[Depends(_enforce_token)])
     # Collaborator endpoints are unauthenticated by design — attacker-controlled
     # callbacks need to be able to hit them. Session IDs act as the secret.
     app.include_router(collaborator.router)
+    # Findings enrichment endpoints are pure-function and offline; safe to expose unauthenticated.
+    app.include_router(findings.router)
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:
