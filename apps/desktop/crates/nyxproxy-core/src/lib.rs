@@ -15,6 +15,8 @@
 //! The crate has **no dependency on Tauri** so the engine can be unit-tested
 //! in isolation, embedded in headless tools, or wrapped by an alternative UI.
 
+pub mod bridge;
+pub mod burp_import;
 pub mod ca;
 pub mod decoder;
 pub mod error;
@@ -24,6 +26,7 @@ pub mod intruder;
 pub mod jwt;
 pub mod macros;
 pub mod model;
+pub mod openapi;
 pub mod owasp;
 pub mod plugins;
 pub mod proxy;

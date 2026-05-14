@@ -44,6 +44,7 @@ uuid.workspace = true
 webpki-roots.workspace = true
 zstd.workspace = true
 time.workspace = true
+quick-xml.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

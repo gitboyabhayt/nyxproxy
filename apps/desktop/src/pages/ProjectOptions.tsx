@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useAppStore } from "@/state/store";
-import { WorkspaceApi } from "@/tauri/api";
+import { BurpImportApi, WorkspaceApi, type BurpImportSummary } from "@/tauri/api";
 import type { Workspace } from "@/tauri/types";
 
 export function ProjectOptionsPage() {
@@ -50,6 +50,8 @@ export function ProjectOptionsPage() {
       </div>
 
       <WorkspacePanel toast={toast} scope={config.scope_include} />
+
+      <BurpImportPanel toast={toast} />
 
       <div className="panel">
         <div className="panel-header">Project data</div>
@@ -189,6 +191,94 @@ function WorkspacePanel({ toast, scope }: WorkspacePanelProps) {
             <b>Last loaded:</b> {loaded.name} — saved {loaded.saved_at} ·{" "}
             {loaded.history.length} flows · {loaded.issues.length} issues · v
             {loaded.app_version}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface BurpImportPanelProps {
+  toast: (level: "info" | "warning" | "error", message: string) => void;
+}
+
+function BurpImportPanel({ toast }: BurpImportPanelProps) {
+  const [busy, setBusy] = useState(false);
+  const [lastSummary, setLastSummary] = useState<BurpImportSummary | null>(null);
+
+  async function pickXmlPath(): Promise<string | null> {
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const chosen = await dialog.open({
+        title: "Import Burp Suite items XML",
+        multiple: false,
+        filters: [
+          { name: "Burp items XML", extensions: ["xml"] },
+          { name: "All files", extensions: ["*"] },
+        ],
+      });
+      if (!chosen) return null;
+      return typeof chosen === "string" ? chosen : null;
+    } catch {
+      const path = window.prompt(
+        "Enter path to a Burp Suite XML items export:",
+        "",
+      );
+      return path && path.trim() ? path.trim() : null;
+    }
+  }
+
+  const onImport = async () => {
+    const path = await pickXmlPath();
+    if (!path) return;
+    setBusy(true);
+    try {
+      const summary = await BurpImportApi.importFromXml(path);
+      setLastSummary(summary);
+      if (summary.items_imported > 0) {
+        toast(
+          "info",
+          `Imported ${summary.items_imported} flows from Burp${
+            summary.items_skipped ? ` (${summary.items_skipped} skipped)` : ""
+          }`,
+        );
+      } else {
+        toast(
+          "warning",
+          `No items imported from Burp XML (saw ${summary.items_seen}, skipped ${summary.items_skipped})`,
+        );
+      }
+    } catch (err) {
+      toast("error", `Import failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Import from Burp Suite</div>
+      <div className="panel-body" style={{ padding: 12, gap: 8 }}>
+        <p style={{ color: "var(--text-dim)", margin: 0 }}>
+          In Burp Suite: <b>Proxy</b> → <b>HTTP history</b> → select items →
+          right-click → <b>Save items…</b> (XML format). Drop the resulting{" "}
+          <code>.xml</code> file here and every request/response pair is
+          appended to NyxProxy history with the <code>import:burp</code> tag.
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn primary" disabled={busy} onClick={onImport}>
+            Choose Burp XML…
+          </button>
+        </div>
+        {lastSummary && (
+          <div className="banner info">
+            Burp <code>{lastSummary.burp_version ?? "?"}</code>: imported{" "}
+            <b>{lastSummary.items_imported}</b> of{" "}
+            <b>{lastSummary.items_seen}</b> items
+            {lastSummary.items_skipped ? ` (${lastSummary.items_skipped} skipped)` : ""}
+            {lastSummary.errors.length
+              ? ` — first error: ${lastSummary.errors[0]}`
+              : ""}
           </div>
         )}
       </div>

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/nyxproxy-core"]
+members = ["src-tauri", "crates/nyxproxy-core", "crates/nyxproxy-scan"]
 
 [workspace.package]
 version = "0.1.0"
@@ -45,6 +45,7 @@ webpki-roots = "0.26"
 zstd = "0.13"
 time = "0.3"
 tempfile = "3.13"
+quick-xml = "0.36"
 
 [profile.release]
 opt-level = 3
