@@ -7,13 +7,21 @@
 //! 3. HTTPS works via the standard CONNECT tunnel: clients send
 //!    `CONNECT host:port HTTP/1.1`. We respond `200`, upgrade the connection,
 //!    perform a server-side TLS handshake using a leaf certificate minted by
-//!    [`crate::ca::CertAuthority`], and then serve HTTP/1.1 over the
-//!    decrypted stream — capturing each inner request and forwarding it to the
-//!    real target with `reqwest`.
+//!    [`crate::ca::CertAuthority`] (advertising `h2,http/1.1` via ALPN), and
+//!    then serve HTTP/2 or HTTP/1.1 over the decrypted stream — capturing each
+//!    inner request and forwarding it to the real target with `reqwest`.
 //!
-//! Phase 1 supports HTTP/1.1 over the MITM. HTTP/2 and WebSocket upgrades are
-//! tracked for Phase 3; today they are tunnelled opaquely (no inspection) when
-//! the client negotiates them via ALPN.
+//! ALPN handling:
+//!   * If the client negotiates `h2` we serve with [`hyper::server::conn::http2`].
+//!   * Otherwise we serve with [`hyper::server::conn::http1`] (covers HTTP/1.1
+//!     and WebSocket upgrades).
+//!
+//! HTTP/3 (QUIC) cannot be MITM'd through a standard CONNECT tunnel because
+//! CONNECT tunnels TCP, not UDP. Browsers that advertise QUIC support via
+//! `Alt-Svc` would bypass the proxy entirely — to prevent that we strip the
+//! `Alt-Svc` and `Alternate-Service` response headers in [`forward_capture`].
+//! Upstream HTTP/3 is available transparently when `reqwest` is built with the
+//! `http3` feature.
 
 use std::convert::Infallible;
 use std::net::SocketAddr;
@@ -24,10 +32,10 @@ use base64::Engine;
 use bytes::Bytes;
 use http_body_util::{BodyExt, Full};
 use hyper::body::Incoming;
-use hyper::server::conn::http1;
+use hyper::server::conn::{http1, http2};
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Uri};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
 use parking_lot::RwLock;
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -291,6 +299,11 @@ impl Proxy {
             .accept(TokioIo::new(upgraded))
             .await
             .map_err(|e| NyxError::Tls(format!("accept: {e}")))?;
+        let alpn = tls_stream
+            .get_ref()
+            .1
+            .alpn_protocol()
+            .map(|p| p.to_vec());
         let io = TokioIo::new(tls_stream);
 
         let service = service_fn({
@@ -303,13 +316,25 @@ impl Proxy {
             }
         });
 
-        http1::Builder::new()
-            .preserve_header_case(true)
-            .keep_alive(true)
-            .serve_connection(io, service)
-            .with_upgrades()
-            .await
-            .map_err(|e| NyxError::Http(format!("inner serve: {e}")))?;
+        match alpn.as_deref() {
+            Some(b"h2") => {
+                debug!(host, port, "MITM serving HTTP/2");
+                http2::Builder::new(TokioExecutor::new())
+                    .serve_connection(io, service)
+                    .await
+                    .map_err(|e| NyxError::Http(format!("inner h2 serve: {e}")))?;
+            }
+            _ => {
+                debug!(host, port, "MITM serving HTTP/1.1");
+                http1::Builder::new()
+                    .preserve_header_case(true)
+                    .keep_alive(true)
+                    .serve_connection(io, service)
+                    .with_upgrades()
+                    .await
+                    .map_err(|e| NyxError::Http(format!("inner h1 serve: {e}")))?;
+            }
+        }
         Ok(())
     }
 
@@ -602,10 +627,14 @@ fn should_tunnel_opaquely(host: &str, cfg: &ProxyConfig) -> bool {
 fn build_server_config(ca: &CertAuthority, host: &str) -> NyxResult<Arc<ServerConfig>> {
     let (chain, key) = ca.leaf_for(host)?;
     let key_clone = (*key).clone_key();
-    let cfg = ServerConfig::builder()
+    let mut cfg = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(chain, key_clone)
         .map_err(|e| NyxError::Tls(e.to_string()))?;
+    // Advertise HTTP/2 + HTTP/1.1 via ALPN so the client can negotiate the
+    // best protocol it supports. WebSocket upgrades still require HTTP/1.1, so
+    // we keep `http/1.1` in the list.
+    cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
     Ok(Arc::new(cfg))
 }
 
@@ -757,6 +786,8 @@ async fn forward_capture(
                 | "te"
                 | "trailers"
                 | "upgrade"
+                | "alt-svc"
+                | "alternate-service"
         ) {
             continue;
         }
@@ -861,5 +892,17 @@ mod tests {
         };
         assert!(should_tunnel_opaquely("other.example", &cfg));
         assert!(!should_tunnel_opaquely("api.target.example", &cfg));
+    }
+
+    #[test]
+    fn server_config_advertises_h2_and_h1_alpn() {
+        // Build a CA + leaf for a dummy host and assert ALPN includes h2 then http/1.1.
+        let ca = CertAuthority::ephemeral().expect("ephemeral CA");
+        let cfg = build_server_config(&ca, "example.com").expect("build cfg");
+        assert_eq!(
+            cfg.alpn_protocols,
+            vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+            "ALPN must advertise h2 first, then http/1.1"
+        );
     }
 }
