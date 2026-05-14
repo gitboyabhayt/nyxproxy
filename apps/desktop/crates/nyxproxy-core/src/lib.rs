@@ -19,6 +19,7 @@ pub mod ca;
 pub mod decoder;
 pub mod error;
 pub mod history;
+pub mod http3;
 pub mod intercept;
 pub mod intruder;
 pub mod jwt;

@@ -5,7 +5,7 @@ import { RequestViewer } from "@/components/RequestViewer";
 import { SplitPane } from "@/components/SplitPane";
 import { textToBase64 } from "@/lib/codec";
 import { useAppStore } from "@/state/store";
-import { RepeaterApi } from "@/tauri/api";
+import { Http3Api, RepeaterApi } from "@/tauri/api";
 import type { CapturedResponse } from "@/tauri/types";
 
 export function RepeaterPage() {
@@ -53,6 +53,33 @@ export function RepeaterPage() {
     } catch (err) {
       upsert({ ...active, lastResponse: null, lastError: String(err) });
       toast("error", `Send failed: ${err}`);
+    }
+  };
+
+  /** Send the draft over HTTP/3 (QUIC) and surface the response as a synthesised CapturedResponse. */
+  const sendH3 = async () => {
+    if (!active) return;
+    try {
+      const h3 = await Http3Api.send({
+        method: active.method,
+        url: active.url,
+        headers: active.headers.map((h) => [h.name, h.value] as [string, string]),
+        body_b64: textToBase64(active.body),
+      });
+      const synthetic: CapturedResponse = {
+        status: h3.status,
+        http_version: h3.http_version,
+        reason: "",
+        headers: h3.headers.map(([name, value]) => ({ name, value })),
+        body_b64: h3.body_b64,
+        body_size: h3.body_size,
+        elapsed_ms: h3.elapsed_ms,
+      };
+      upsert({ ...active, lastResponse: synthetic, lastError: null });
+      toast("info", `HTTP/3 ${h3.status} in ${h3.elapsed_ms}ms`);
+    } catch (err) {
+      upsert({ ...active, lastResponse: null, lastError: String(err) });
+      toast("error", `HTTP/3 send failed: ${err}`);
     }
   };
 
@@ -112,6 +139,13 @@ export function RepeaterPage() {
                 <span style={{ flex: 1 }}>Request</span>
                 <button className="btn primary small" onClick={send}>
                   Send
+                </button>
+                <button
+                  className="btn small"
+                  onClick={sendH3}
+                  title="Send via HTTP/3 (QUIC). Target must be https:// and serve h3."
+                >
+                  Send /h3
                 </button>
               </div>
               <div className="toolbar">

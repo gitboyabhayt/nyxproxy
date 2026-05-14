@@ -163,6 +163,26 @@ function InterceptPanel() {
               />
               <span>Intercept enabled</span>
             </label>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }} title="Advertise h2 in the MITM TLS ALPN. Disable to force HTTP/1.1.">
+              <input
+                type="checkbox"
+                checked={!!config?.enable_http2}
+                onChange={(e) =>
+                  config && save({ ...config, enable_http2: e.target.checked })
+                }
+              />
+              <span>HTTP/2</span>
+            </label>
+            <label style={{ display: "flex", gap: 6, alignItems: "center" }} title="Allow per-request HTTP/3 (QUIC) upstream. UI toggle only — Repeater uses this when explicitly invoked.">
+              <input
+                type="checkbox"
+                checked={!!config?.enable_http3}
+                onChange={(e) =>
+                  config && save({ ...config, enable_http3: e.target.checked })
+                }
+              />
+              <span>HTTP/3</span>
+            </label>
             <button className="btn small ghost" onClick={refresh}>
               Refresh
             </button>
