@@ -323,6 +323,126 @@ export const OpenApiApi = {
     }),
 };
 
+// ---------------------------------------------------------------------------
+// GraphQL native (Feature R)
+// ---------------------------------------------------------------------------
+
+export type GraphQLAttackKind =
+  | "introspection-enabled"
+  | "alias-overload"
+  | "batched-queries"
+  | "deep-nesting"
+  | "field-suggestion-leak";
+
+export interface GraphQLAttackCase {
+  kind: GraphQLAttackKind;
+  name: string;
+  method: string;
+  body: string;
+  repeat: number;
+  notes: string;
+}
+
+export interface GraphQLType {
+  name: string;
+  kind: string;
+  fields: string[];
+}
+
+export interface GraphQLSchema {
+  query_type: string | null;
+  mutation_type: string | null;
+  subscription_type: string | null;
+  types: GraphQLType[];
+}
+
+export const GraphQLApi = {
+  listEndpoints: () => invoke<string[]>("graphql_list_endpoints"),
+  introspectionQuery: () => invoke<string>("graphql_introspection_query"),
+  parseIntrospection: (body: string) =>
+    invoke<GraphQLSchema>("graphql_parse_introspection", { body }),
+  buildAttackPlan: (schema?: GraphQLSchema) =>
+    invoke<GraphQLAttackCase[]>("graphql_build_attack_plan", {
+      schemaJson: schema ? JSON.stringify(schema) : null,
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// PCAP export (Feature GG)
+// ---------------------------------------------------------------------------
+
+export const PcapApi = {
+  /** Export the current history (or `flow_ids` subset) to a pcap file. */
+  exportToFile: (path: string, flowIds?: string[]) =>
+    invoke<number>("pcap_export_cmd", {
+      path,
+      flowIds: flowIds && flowIds.length > 0 ? flowIds : null,
+    }),
+};
+
+// ---------------------------------------------------------------------------
+// Compliance reports (Feature II)
+// ---------------------------------------------------------------------------
+
+export type ComplianceFramework =
+  | "pci-dss"
+  | "iso27001"
+  | "soc2"
+  | "hipaa"
+  | "gdpr";
+
+export interface ComplianceControl {
+  framework: ComplianceFramework;
+  control_id: string;
+  control_title: string;
+}
+
+export interface ComplianceFinding {
+  issue_name: string;
+  severity: "critical" | "high" | "medium" | "low" | "info";
+  url: string;
+  controls: ComplianceControl[];
+}
+
+export interface FrameworkCoverage {
+  framework: ComplianceFramework;
+  control_id: string;
+  control_title: string;
+  finding_count: number;
+}
+
+export interface ComplianceReport {
+  generated_at: string;
+  frameworks: ComplianceFramework[];
+  findings: ComplianceFinding[];
+  coverage: FrameworkCoverage[];
+}
+
+export const ComplianceApi = {
+  build: (issues: Issue[], frameworks: ComplianceFramework[]) =>
+    invoke<ComplianceReport>("compliance_build_cmd", {
+      args: { issues, frameworks },
+    }),
+  renderHtml: (report: ComplianceReport) =>
+    invoke<string>("compliance_render_html_cmd", { report }),
+  renderMarkdown: (report: ComplianceReport) =>
+    invoke<string>("compliance_render_md_cmd", { report }),
+};
+
+// ---------------------------------------------------------------------------
+// Embedded Chromium browser (Feature DD)
+// ---------------------------------------------------------------------------
+
+export const EmbeddedBrowserApi = {
+  /** Open a new webview window pointing at `targetUrl`, routed through the
+   *  configured proxy (defaults to the running NyxProxy listener). */
+  open: (targetUrl: string, proxyUrl?: string) =>
+    invoke<string>("open_embedded_browser_cmd", {
+      targetUrl,
+      proxyUrl: proxyUrl ?? null,
+    }),
+};
+
 export const WebSocketApi = {
   listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
   getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
@@ -582,6 +702,34 @@ function makeMockBridge(): TauriBridge {
           cases: [],
           diagnostics: ["mock: openapi plan not available in browser preview"],
         } as unknown as never;
+      case "graphql_list_endpoints":
+        return [] as unknown as never;
+      case "graphql_introspection_query":
+        return "query IntrospectionQuery { __schema { queryType { name } } }" as unknown as never;
+      case "graphql_parse_introspection":
+        return {
+          query_type: null,
+          mutation_type: null,
+          subscription_type: null,
+          types: [],
+        } as unknown as never;
+      case "graphql_build_attack_plan":
+        return [] as unknown as never;
+      case "pcap_export_cmd":
+        return 0 as unknown as never;
+      case "compliance_build_cmd":
+        return {
+          generated_at: new Date().toISOString(),
+          frameworks: [],
+          findings: [],
+          coverage: [],
+        } as unknown as never;
+      case "compliance_render_html_cmd":
+        return "<html><body>mock report</body></html>" as unknown as never;
+      case "compliance_render_md_cmd":
+        return "# mock report" as unknown as never;
+      case "open_embedded_browser_cmd":
+        return "mock-window" as unknown as never;
       default:
         throw new Error(`unsupported mock invoke: ${cmd}`);
     }

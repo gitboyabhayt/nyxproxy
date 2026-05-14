@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useAppStore } from "@/state/store";
-import { BurpImportApi, WorkspaceApi, type BurpImportSummary } from "@/tauri/api";
+import {
+  BurpImportApi,
+  EmbeddedBrowserApi,
+  PcapApi,
+  WorkspaceApi,
+  type BurpImportSummary,
+} from "@/tauri/api";
 import type { Workspace } from "@/tauri/types";
 
 export function ProjectOptionsPage() {
@@ -52,6 +58,13 @@ export function ProjectOptionsPage() {
       <WorkspacePanel toast={toast} scope={config.scope_include} />
 
       <BurpImportPanel toast={toast} />
+
+      <PcapExportPanel toast={toast} />
+
+      <EmbeddedBrowserPanel
+        toast={toast}
+        listenAddr={config.listen_addr}
+      />
 
       <div className="panel">
         <div className="panel-header">Project data</div>
@@ -281,6 +294,112 @@ function BurpImportPanel({ toast }: BurpImportPanelProps) {
               : ""}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+interface PcapExportPanelProps {
+  toast: ReturnType<typeof useAppStore.getState>["toast"];
+}
+
+function PcapExportPanel({ toast }: PcapExportPanelProps) {
+  const [busy, setBusy] = useState(false);
+
+  async function pickAndExport(): Promise<void> {
+    let path: string | null = null;
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const chosen = await dialog.save({
+        title: "Export history as pcap",
+        defaultPath: "nyxproxy.pcap",
+        filters: [{ name: "PCAP", extensions: ["pcap"] }],
+      });
+      if (typeof chosen === "string") path = chosen;
+    } catch {
+      path = window.prompt(
+        "Enter path for the pcap file:",
+        "nyxproxy.pcap",
+      );
+    }
+    if (!path) return;
+    setBusy(true);
+    try {
+      const n = await PcapApi.exportToFile(path);
+      toast("info", `pcap exported — ${n} flows written to ${path}`);
+    } catch (err) {
+      toast("error", `pcap export failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Export as pcap (Feature GG)</div>
+      <div className="panel-body" style={{ padding: 12, gap: 8 }}>
+        <p style={{ color: "var(--text-dim)", margin: 0 }}>
+          Save the current history as a libpcap file. Open it in Wireshark to
+          inspect the synthesised HTTP frames packet-by-packet.
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" disabled={busy} onClick={() => void pickAndExport()}>
+            Export pcap…
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface EmbeddedBrowserPanelProps {
+  toast: ReturnType<typeof useAppStore.getState>["toast"];
+  listenAddr: string;
+}
+
+function EmbeddedBrowserPanel({ toast, listenAddr }: EmbeddedBrowserPanelProps) {
+  const [url, setUrl] = useState("https://example.com");
+  const [busy, setBusy] = useState(false);
+
+  async function launch(): Promise<void> {
+    setBusy(true);
+    try {
+      await EmbeddedBrowserApi.open(url);
+      toast("info", `Browser opened — routed through http://${listenAddr}`);
+    } catch (err) {
+      toast("error", `Browser launch failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Embedded browser (Feature DD)</div>
+      <div className="panel-body" style={{ padding: 12, gap: 8 }}>
+        <p style={{ color: "var(--text-dim)", margin: 0 }}>
+          Open a webview pre-configured to use the NyxProxy listener at{" "}
+          <code>http://{listenAddr}</code>. No manual proxy setup. The CA still
+          needs to be trusted by your OS so HTTPS interception works — install
+          it from the "User options → CA" panel.
+        </p>
+        <div className="field">
+          <label className="label">Target URL</label>
+          <input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com"
+          />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            className="btn primary"
+            disabled={busy || url.length === 0}
+            onClick={() => void launch()}
+          >
+            Open browser
+          </button>
+        </div>
       </div>
     </div>
   );

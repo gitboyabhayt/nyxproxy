@@ -18,8 +18,10 @@
 pub mod bridge;
 pub mod burp_import;
 pub mod ca;
+pub mod compliance;
 pub mod decoder;
 pub mod error;
+pub mod graphql;
 pub mod history;
 pub mod intercept;
 pub mod intruder;
@@ -28,6 +30,7 @@ pub mod macros;
 pub mod model;
 pub mod openapi;
 pub mod owasp;
+pub mod pcap;
 pub mod plugins;
 pub mod proxy;
 pub mod repeater;
