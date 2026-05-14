@@ -14,8 +14,12 @@ use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConf
 use nyxproxy_core::jwt::{self, JwtBruteResult, JwtDecoded, JwtFinding};
 use nyxproxy_core::macros::{run_macro, Macro, MacroRunResult};
 use nyxproxy_core::model::{CapturedRequest, CapturedResponse};
+use nyxproxy_core::monitor::{Cadence, MonitorRunRecord, MonitorSchedule};
+use nyxproxy_core::nyxshare::{self, ShareManifest, SharePayload};
 use nyxproxy_core::openapi::{self, OpenApiPlan};
 use nyxproxy_core::owasp::{self, OwaspCategory};
+use nyxproxy_core::owasp_dashboard::{self, OwaspDashboard};
+use nyxproxy_core::selfhost::{self, SelfHostBundle, SelfHostConfig};
 use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
 use nyxproxy_core::repeater::{self, RepeaterRequest};
@@ -930,4 +934,211 @@ pub async fn open_embedded_browser_cmd(
     .build()
     .map_err(|e| format!("create webview: {e}"))?;
     Ok(label)
+}
+
+// ---------------------------------------------------------------------------
+// Self-hosting wizard (Feature Y)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHostRenderArgs {
+    pub config: SelfHostConfig,
+}
+
+#[tauri::command]
+pub fn selfhost_render_cmd(args: SelfHostRenderArgs) -> Result<SelfHostBundle, String> {
+    Ok(selfhost::render(&args.config))
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SelfHostWriteArgs {
+    pub config: SelfHostConfig,
+    pub output_dir: String,
+}
+
+#[tauri::command]
+pub fn selfhost_write_cmd(args: SelfHostWriteArgs) -> Result<Vec<String>, String> {
+    let bundle = selfhost::render(&args.config);
+    let dir = std::path::PathBuf::from(&args.output_dir);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create dir: {e}"))?;
+    let mut written = Vec::new();
+    let mut write = |name: &str, body: &str| -> Result<(), String> {
+        let p = dir.join(name);
+        std::fs::write(&p, body).map_err(|e| format!("write {name}: {e}"))?;
+        written.push(p.display().to_string());
+        Ok(())
+    };
+    write("Dockerfile", &bundle.dockerfile)?;
+    write("docker-compose.yml", &bundle.compose)?;
+    write(".env.example", &bundle.env_example)?;
+    if let Some(caddy) = &bundle.caddyfile {
+        write("Caddyfile", caddy)?;
+    }
+    write("README.md", &bundle.readme)?;
+    Ok(written)
+}
+
+// ---------------------------------------------------------------------------
+// .nyxshare encrypted evidence packs (Leapfrog #8)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareCreateArgs {
+    pub password: String,
+    pub note: String,
+    pub flow_ids: Vec<String>,
+    pub issues: Vec<Issue>,
+}
+
+#[tauri::command]
+pub fn share_seal_cmd(
+    state: State<'_, AppStateSlot>,
+    args: ShareCreateArgs,
+) -> Result<Vec<u8>, String> {
+    use chrono::Utc;
+    let history = with_state(&state, |s| s.history.clone())?;
+    let all = history.list();
+    let wanted: std::collections::HashSet<String> = args.flow_ids.into_iter().collect();
+    let flows: Vec<_> = all
+        .into_iter()
+        .filter(|e| wanted.is_empty() || wanted.contains(&e.flow.id.to_string()))
+        .map(|e| e.flow.clone())
+        .collect();
+    let manifest = ShareManifest {
+        created_at: Utc::now().to_rfc3339(),
+        app_version: env!("CARGO_PKG_VERSION").to_string(),
+        note: args.note,
+        flow_count: flows.len(),
+        issue_count: args.issues.len(),
+    };
+    let payload = SharePayload {
+        manifest,
+        flows,
+        issues: args.issues,
+    };
+    nyxshare::seal(&payload, &args.password).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareOpenArgs {
+    pub password: String,
+    pub bytes: Vec<u8>,
+}
+
+#[tauri::command]
+pub fn share_unseal_cmd(args: ShareOpenArgs) -> Result<SharePayload, String> {
+    nyxshare::unseal(&args.bytes, &args.password).map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// Continuous monitoring (Feature AA)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorCreateArgs {
+    pub name: String,
+    pub target_url: String,
+    pub scope_hosts: Vec<String>,
+    pub cadence: Cadence,
+}
+
+#[tauri::command]
+pub fn monitor_upsert_cmd(
+    state: State<'_, AppStateSlot>,
+    args: MonitorCreateArgs,
+) -> Result<MonitorSchedule, String> {
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let sched = MonitorSchedule::new(args.name, args.target_url, args.scope_hosts, args.cadence);
+    mon.lock().upsert(sched.clone());
+    with_state(&state, |s| s.persist_monitor())?;
+    Ok(sched)
+}
+
+#[tauri::command]
+pub fn monitor_list_cmd(state: State<'_, AppStateSlot>) -> Result<Vec<MonitorSchedule>, String> {
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let v = mon.lock().list();
+    Ok(v)
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorIdArgs {
+    pub id: String,
+}
+
+#[tauri::command]
+pub fn monitor_remove_cmd(
+    state: State<'_, AppStateSlot>,
+    args: MonitorIdArgs,
+) -> Result<(), String> {
+    let id = uuid::Uuid::parse_str(&args.id).map_err(|e| format!("bad id: {e}"))?;
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    mon.lock().remove(id);
+    with_state(&state, |s| s.persist_monitor())?;
+    Ok(())
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MonitorRunCompleteArgs {
+    pub schedule_id: String,
+    pub issues: Vec<Issue>,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn monitor_complete_run_cmd(
+    state: State<'_, AppStateSlot>,
+    args: MonitorRunCompleteArgs,
+) -> Result<Option<MonitorRunRecord>, String> {
+    use chrono::Utc;
+    let id = uuid::Uuid::parse_str(&args.schedule_id).map_err(|e| format!("bad id: {e}"))?;
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let now = Utc::now();
+    let rec = mon
+        .lock()
+        .complete_run(id, now, now, &args.issues, args.error);
+    with_state(&state, |s| s.persist_monitor())?;
+    Ok(rec)
+}
+
+#[tauri::command]
+pub fn monitor_runs_cmd(state: State<'_, AppStateSlot>) -> Result<Vec<MonitorRunRecord>, String> {
+    let mon = with_state(&state, |s| s.monitor.clone())?;
+    let v = mon.lock().runs.clone();
+    Ok(v)
+}
+
+// ---------------------------------------------------------------------------
+// Live OWASP Top-10 dashboard (Leapfrog #6)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OwaspDashboardArgs {
+    pub issues: Vec<Issue>,
+}
+
+#[tauri::command]
+pub fn owasp_dashboard_cmd(args: OwaspDashboardArgs) -> Result<OwaspDashboard, String> {
+    Ok(owasp_dashboard::build(&args.issues))
+}
+
+#[tauri::command]
+pub fn write_bytes_cmd(path: String, bytes: Vec<u8>) -> Result<usize, String> {
+    use std::io::Write;
+    let mut f = std::fs::File::create(&path).map_err(|e| format!("create: {e}"))?;
+    f.write_all(&bytes).map_err(|e| format!("write: {e}"))?;
+    Ok(bytes.len())
+}
+
+#[tauri::command]
+pub fn read_bytes_cmd(path: String) -> Result<Vec<u8>, String> {
+    std::fs::read(&path).map_err(|e| format!("read: {e}"))
 }

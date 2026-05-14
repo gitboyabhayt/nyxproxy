@@ -19,6 +19,7 @@ import type {
   Codec,
   DecoderSmartResult,
   HistoryEntry,
+  HttpFlow,
   IntruderAttempt,
   IntruderConfig,
   InterceptEntry,
@@ -443,6 +444,131 @@ export const EmbeddedBrowserApi = {
     }),
 };
 
+// ---------------------------------------------------------------------------
+// Self-hosting wizard (Feature Y)
+// ---------------------------------------------------------------------------
+
+export interface SelfHostConfig {
+  port: number;
+  enableCaddy: boolean;
+  caddyHost: string | null;
+  enableCloudflareTunnel: boolean;
+  persistentDataVolume: boolean;
+}
+
+export interface SelfHostBundle {
+  dockerfile: string;
+  compose: string;
+  envExample: string;
+  caddyfile: string | null;
+  readme: string;
+}
+
+export const SelfHostApi = {
+  render: (config: SelfHostConfig) =>
+    invoke<SelfHostBundle>("selfhost_render_cmd", { args: { config } }),
+  write: (config: SelfHostConfig, outputDir: string) =>
+    invoke<string[]>("selfhost_write_cmd", { args: { config, outputDir } }),
+};
+
+// ---------------------------------------------------------------------------
+// .nyxshare encrypted evidence packs (Leapfrog #8)
+// ---------------------------------------------------------------------------
+
+export interface ShareManifest {
+  createdAt: string;
+  appVersion: string;
+  note: string;
+  flowCount: number;
+  issueCount: number;
+}
+
+export interface SharePayload {
+  manifest: ShareManifest;
+  flows: HttpFlow[];
+  issues: Issue[];
+}
+
+export const NyxShareApi = {
+  seal: (args: {
+    password: string;
+    note: string;
+    flowIds: string[];
+    issues: Issue[];
+  }) => invoke<number[]>("share_seal_cmd", { args }),
+  unseal: (args: { password: string; bytes: number[] }) =>
+    invoke<SharePayload>("share_unseal_cmd", { args }),
+};
+
+// ---------------------------------------------------------------------------
+// Continuous monitoring (Feature AA)
+// ---------------------------------------------------------------------------
+
+export type Cadence = "hourly" | "daily" | "weekly";
+
+export interface MonitorSchedule {
+  id: string;
+  name: string;
+  targetUrl: string;
+  scopeHosts: string[];
+  cadence: Cadence;
+  createdAt: string;
+  lastRunAt: string | null;
+  nextRunAt: string;
+  enabled: boolean;
+  baselineFingerprints: string[];
+}
+
+export interface MonitorRunRecord {
+  scheduleId: string;
+  startedAt: string;
+  finishedAt: string;
+  newIssues: Issue[];
+  resolvedIssues: Issue[];
+  stillPresent: number;
+  error: string | null;
+}
+
+export const MonitorApi = {
+  list: () => invoke<MonitorSchedule[]>("monitor_list_cmd"),
+  upsert: (args: {
+    name: string;
+    targetUrl: string;
+    scopeHosts: string[];
+    cadence: Cadence;
+  }) => invoke<MonitorSchedule>("monitor_upsert_cmd", { args }),
+  remove: (id: string) => invoke<void>("monitor_remove_cmd", { args: { id } }),
+  completeRun: (args: {
+    scheduleId: string;
+    issues: Issue[];
+    error: string | null;
+  }) => invoke<MonitorRunRecord | null>("monitor_complete_run_cmd", { args }),
+  runs: () => invoke<MonitorRunRecord[]>("monitor_runs_cmd"),
+};
+
+// ---------------------------------------------------------------------------
+// Live OWASP dashboard (Leapfrog #6)
+// ---------------------------------------------------------------------------
+
+export interface OwaspCategoryStat {
+  code: string;
+  title: string;
+  count: number;
+  percent: number;
+  industryBaseline: number;
+  deltaPp: number;
+}
+
+export interface OwaspDashboard {
+  total: number;
+  categories: OwaspCategoryStat[];
+}
+
+export const OwaspDashboardApi = {
+  build: (issues: Issue[]) =>
+    invoke<OwaspDashboard>("owasp_dashboard_cmd", { args: { issues } }),
+};
+
 export const WebSocketApi = {
   listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
   getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
@@ -730,6 +856,53 @@ function makeMockBridge(): TauriBridge {
         return "# mock report" as unknown as never;
       case "open_embedded_browser_cmd":
         return "mock-window" as unknown as never;
+      case "selfhost_render_cmd":
+        return {
+          dockerfile: "# mock",
+          compose: "# mock",
+          envExample: "# mock",
+          caddyfile: null,
+          readme: "# mock",
+        } as unknown as never;
+      case "selfhost_write_cmd":
+        return [] as unknown as never;
+      case "share_seal_cmd":
+        return [] as unknown as never;
+      case "share_unseal_cmd":
+        return {
+          manifest: {
+            createdAt: new Date().toISOString(),
+            appVersion: "mock",
+            note: "",
+            flowCount: 0,
+            issueCount: 0,
+          },
+          flows: [],
+          issues: [],
+        } as unknown as never;
+      case "monitor_list_cmd":
+        return [] as unknown as never;
+      case "monitor_upsert_cmd":
+        return {
+          id: "mock",
+          name: "mock",
+          targetUrl: "https://mock/",
+          scopeHosts: [],
+          cadence: "daily",
+          createdAt: new Date().toISOString(),
+          lastRunAt: null,
+          nextRunAt: new Date().toISOString(),
+          enabled: true,
+          baselineFingerprints: [],
+        } as unknown as never;
+      case "monitor_remove_cmd":
+        return undefined as unknown as never;
+      case "monitor_complete_run_cmd":
+        return null as unknown as never;
+      case "monitor_runs_cmd":
+        return [] as unknown as never;
+      case "owasp_dashboard_cmd":
+        return { total: 0, categories: [] } as unknown as never;
       default:
         throw new Error(`unsupported mock invoke: ${cmd}`);
     }

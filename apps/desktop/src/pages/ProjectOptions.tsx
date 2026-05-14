@@ -3,11 +3,17 @@ import { useAppStore } from "@/state/store";
 import {
   BurpImportApi,
   EmbeddedBrowserApi,
+  invoke,
+  NyxShareApi,
   PcapApi,
+  SelfHostApi,
   WorkspaceApi,
   type BurpImportSummary,
+  type SelfHostBundle,
+  type SelfHostConfig,
+  type SharePayload,
 } from "@/tauri/api";
-import type { Workspace } from "@/tauri/types";
+import type { Issue, Workspace } from "@/tauri/types";
 
 export function ProjectOptionsPage() {
   const config = useAppStore((s) => s.proxy.config);
@@ -65,6 +71,10 @@ export function ProjectOptionsPage() {
         toast={toast}
         listenAddr={config.listen_addr}
       />
+
+      <SelfHostPanel toast={toast} />
+
+      <NyxSharePanel toast={toast} />
 
       <div className="panel">
         <div className="panel-header">Project data</div>
@@ -400,6 +410,269 @@ function EmbeddedBrowserPanel({ toast, listenAddr }: EmbeddedBrowserPanelProps) 
             Open browser
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+interface SelfHostPanelProps {
+  toast: (level: "info" | "warning" | "error", message: string) => void;
+}
+
+function SelfHostPanel({ toast }: SelfHostPanelProps) {
+  const [cfg, setCfg] = useState<SelfHostConfig>({
+    port: 8080,
+    enableCaddy: false,
+    caddyHost: null,
+    enableCloudflareTunnel: false,
+    persistentDataVolume: true,
+  });
+  const [bundle, setBundle] = useState<SelfHostBundle | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function preview(): Promise<void> {
+    setBusy(true);
+    try {
+      const b = await SelfHostApi.render(cfg);
+      setBundle(b);
+      toast("info", "Self-host bundle generated");
+    } catch (err) {
+      toast("error", `Render failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function write(): Promise<void> {
+    let dir: string | null = null;
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const chosen = await dialog.open({
+        title: "Choose output directory",
+        directory: true,
+        multiple: false,
+      });
+      if (typeof chosen === "string") dir = chosen;
+    } catch {
+      dir = window.prompt("Output directory:", "./nyxproxy-selfhost");
+    }
+    if (!dir) return;
+    setBusy(true);
+    try {
+      const written = await SelfHostApi.write(cfg, dir);
+      toast("info", `Wrote ${written.length} files to ${dir}`);
+    } catch (err) {
+      toast("error", `Write failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Self-hosting wizard</div>
+      <div className="panel-body" style={{ padding: 12, gap: 8 }}>
+        <p className="notice">
+          Generate a ready-to-deploy Docker bundle for the NyxProxy backend.
+        </p>
+        <div className="field">
+          <label className="label">Backend port</label>
+          <input
+            type="number"
+            value={cfg.port}
+            onChange={(e) =>
+              setCfg({ ...cfg, port: parseInt(e.target.value, 10) || 8080 })
+            }
+          />
+        </div>
+        <label>
+          <input
+            type="checkbox"
+            checked={cfg.enableCaddy}
+            onChange={(e) =>
+              setCfg({ ...cfg, enableCaddy: e.target.checked })
+            }
+          />{" "}
+          Add Caddy reverse proxy with auto-TLS
+        </label>
+        {cfg.enableCaddy && (
+          <div className="field">
+            <label className="label">Public host (for Caddy TLS)</label>
+            <input
+              value={cfg.caddyHost ?? ""}
+              onChange={(e) =>
+                setCfg({ ...cfg, caddyHost: e.target.value || null })
+              }
+              placeholder="nyxproxy.example.com"
+            />
+          </div>
+        )}
+        <label>
+          <input
+            type="checkbox"
+            checked={cfg.enableCloudflareTunnel}
+            onChange={(e) =>
+              setCfg({ ...cfg, enableCloudflareTunnel: e.target.checked })
+            }
+          />{" "}
+          Add Cloudflare Tunnel sidecar
+        </label>
+        <label>
+          <input
+            type="checkbox"
+            checked={cfg.persistentDataVolume}
+            onChange={(e) =>
+              setCfg({ ...cfg, persistentDataVolume: e.target.checked })
+            }
+          />{" "}
+          Persistent data volume
+        </label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn" onClick={preview} disabled={busy}>
+            Preview bundle
+          </button>
+          <button className="btn primary" onClick={write} disabled={busy}>
+            Write files…
+          </button>
+        </div>
+        {bundle && (
+          <details>
+            <summary>Generated docker-compose.yml</summary>
+            <pre style={{ maxHeight: 240, overflow: "auto" }}>
+              {bundle.compose}
+            </pre>
+          </details>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface NyxSharePanelProps {
+  toast: (level: "info" | "warning" | "error", message: string) => void;
+}
+
+function NyxSharePanel({ toast }: NyxSharePanelProps) {
+  const [password, setPassword] = useState("");
+  const [note, setNote] = useState("");
+  const [unsealed, setUnsealed] = useState<SharePayload | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function pickSavePath(): Promise<string | null> {
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const chosen = await dialog.save({
+        title: "Save .nyxshare evidence pack",
+        defaultPath: "evidence.nyxshare",
+        filters: [{ name: "NyxShare", extensions: ["nyxshare"] }],
+      });
+      return typeof chosen === "string" ? chosen : null;
+    } catch {
+      return window.prompt(
+        "Enter file path to save (.nyxshare):",
+        "evidence.nyxshare",
+      );
+    }
+  }
+
+  async function pickOpenPath(): Promise<string | null> {
+    try {
+      const dialog = await import("@tauri-apps/plugin-dialog");
+      const chosen = await dialog.open({
+        title: "Open .nyxshare evidence pack",
+        multiple: false,
+        filters: [{ name: "NyxShare", extensions: ["nyxshare"] }],
+      });
+      return typeof chosen === "string" ? chosen : null;
+    } catch {
+      return window.prompt("Enter file path to open (.nyxshare):", "");
+    }
+  }
+
+  async function seal(): Promise<void> {
+    if (!password) {
+      toast("error", "Password is required");
+      return;
+    }
+    const path = await pickSavePath();
+    if (!path) return;
+    setBusy(true);
+    try {
+      const issues: Issue[] = [];
+      const bytes = await NyxShareApi.seal({
+        password,
+        note,
+        flowIds: [],
+        issues,
+      });
+      const written = await invoke<number>("write_bytes_cmd", { path, bytes });
+      toast("info", `Sealed ${written} bytes to ${path}`);
+    } catch (err) {
+      toast("error", `Seal failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function unseal(): Promise<void> {
+    if (!password) {
+      toast("error", "Password is required");
+      return;
+    }
+    const path = await pickOpenPath();
+    if (!path) return;
+    setBusy(true);
+    try {
+      const bytes = await invoke<number[]>("read_bytes_cmd", { path });
+      const payload = await NyxShareApi.unseal({
+        password,
+        bytes,
+      });
+      setUnsealed(payload);
+      toast(
+        "info",
+        `Unsealed ${payload.flows.length} flows, ${payload.issues.length} issues`,
+      );
+    } catch (err) {
+      toast("error", `Unseal failed: ${err}`);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="panel">
+      <div className="panel-header">Encrypted evidence packs (.nyxshare)</div>
+      <div className="panel-body" style={{ padding: 12, gap: 8 }}>
+        <p className="notice">
+          Bundle the current capture into an end-to-end-encrypted file
+          (ChaCha20-Poly1305 + Argon2id) that another tester can replay.
+        </p>
+        <div className="field">
+          <label className="label">Password</label>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label className="label">Note (visible in manifest)</label>
+          <input value={note} onChange={(e) => setNote(e.target.value)} />
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn primary" onClick={seal} disabled={busy}>
+            Seal &amp; export
+          </button>
+          <button className="btn" onClick={unseal} disabled={busy}>
+            Import &amp; unseal…
+          </button>
+        </div>
+        {unsealed && (
+          <pre style={{ maxHeight: 200, overflow: "auto" }}>
+            {JSON.stringify(unsealed.manifest, null, 2)}
+          </pre>
+        )}
       </div>
     </div>
   );
