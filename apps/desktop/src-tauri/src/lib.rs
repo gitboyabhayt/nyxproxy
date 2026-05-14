@@ -96,6 +96,15 @@ pub fn run() {
             commands::macros_run,
             commands::settings_get,
             commands::settings_set,
+            commands::jwt_decode_cmd,
+            commands::jwt_analyze_cmd,
+            commands::jwt_encode_hs256_cmd,
+            commands::jwt_encode_none_cmd,
+            commands::jwt_brute_hs256_cmd,
+            commands::risk_score_issue_cmd,
+            commands::risk_summary_cmd,
+            commands::workspace_save_cmd,
+            commands::workspace_load_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NyxProxy");

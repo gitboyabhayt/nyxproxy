@@ -28,7 +28,16 @@ def test_lists_all_providers(client: TestClient) -> None:
 
 @pytest.mark.parametrize(
     "provider",
-    ["groq", "openrouter", "huggingface", "cloudflare", "github_models", "nvidia", "bytez", "gemini"],
+    [
+        "groq",
+        "openrouter",
+        "huggingface",
+        "cloudflare",
+        "github_models",
+        "nvidia",
+        "bytez",
+        "gemini",
+    ],
 )
 def test_chat_without_key_returns_503(client: TestClient, provider: str) -> None:
     response = client.post(
