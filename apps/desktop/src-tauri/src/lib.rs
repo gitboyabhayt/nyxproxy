@@ -109,6 +109,7 @@ pub fn run() {
             commands::ws_get_session,
             commands::ws_frames,
             commands::ws_replay,
+            commands::http3_send,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NyxProxy");

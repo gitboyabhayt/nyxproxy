@@ -27,6 +27,8 @@ import type {
   JwtBruteResult,
   JwtDecoded,
   JwtFinding,
+  H3Response,
+  H3SendArgs,
   ProxyConfig,
   ProxyStatus,
   RepeaterRequest,
@@ -160,6 +162,10 @@ export const SettingsApi = {
   set: (settings: Settings) => invoke<void>("settings_set", { settings }),
 };
 
+export const Http3Api = {
+  send: (args: H3SendArgs) => invoke<H3Response>("http3_send", { args }),
+};
+
 export const CollaboratorApi = {
   async createSession(backendUrl: string): Promise<import("./types").CollaboratorSession> {
     const url = `${backendUrl.replace(/\/$/, "")}/collaborator/sessions`;
@@ -284,6 +290,8 @@ function makeMockBridge(): TauriBridge {
     intercept_enabled: false,
     scope_include: [],
     scope_exclude: ["translate.googleapis.com"],
+    enable_http2: true,
+    enable_http3: false,
   };
   let settings: Settings = {
     proxy: proxyConfig,
@@ -421,6 +429,15 @@ function makeMockBridge(): TauriBridge {
           model: "mock",
           content: "Running outside the Tauri shell — connect via npm run tauri:dev for real AI calls.",
           choices: [{ message: { role: "assistant", content: "mock response" } }],
+        } as unknown as never;
+      case "http3_send":
+        return {
+          status: 200,
+          http_version: "HTTP/3",
+          headers: [["x-mock", "true"]],
+          body_b64: "",
+          body_size: 0,
+          elapsed_ms: 0,
         } as unknown as never;
       case "settings_get":
         return settings as unknown as never;

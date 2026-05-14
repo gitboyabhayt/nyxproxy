@@ -27,7 +27,8 @@ use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::{Method, Request, Response, StatusCode, Uri};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioExecutor, TokioIo};
+use hyper_util::server::conn::auto;
 use parking_lot::RwLock;
 use rustls::ServerConfig;
 use serde::{Deserialize, Serialize};
@@ -60,6 +61,18 @@ pub struct ProxyConfig {
     /// MITM entirely.
     #[serde(default)]
     pub scope_exclude: Vec<String>,
+    /// Whether to advertise HTTP/2 (`h2`) in the MITM TLS ALPN. When false,
+    /// only HTTP/1.1 is negotiated with the client.
+    #[serde(default = "default_true")]
+    pub enable_http2: bool,
+    /// Whether the upstream pool should attempt HTTP/3 (QUIC) when the server
+    /// advertises it (best-effort — see `http3` module).
+    #[serde(default)]
+    pub enable_http3: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for ProxyConfig {
@@ -73,6 +86,8 @@ impl Default for ProxyConfig {
                 "clients2.google.com".into(),
                 "safebrowsing.googleapis.com".into(),
             ],
+            enable_http2: true,
+            enable_http3: false,
         }
     }
 }
@@ -239,7 +254,8 @@ impl Proxy {
             return ok_connect_response();
         }
 
-        let server_config = match build_server_config(&self.ca, &host) {
+        let enable_http2 = self.config.read().enable_http2;
+        let server_config = match build_server_config(&self.ca, &host, enable_http2) {
             Ok(c) => c,
             Err(err) => {
                 error!(?err, "tls server config failed");
@@ -291,6 +307,17 @@ impl Proxy {
             .accept(TokioIo::new(upgraded))
             .await
             .map_err(|e| NyxError::Tls(format!("accept: {e}")))?;
+
+        // After the handshake, look at the negotiated ALPN. h2 cannot carry
+        // CONNECT/Upgrade WebSockets the same way HTTP/1.1 does, so we keep
+        // the http1 path for ws and use the h2 server for plain h2 traffic.
+        let alpn = tls_stream
+            .get_ref()
+            .1
+            .alpn_protocol()
+            .map(|p| p.to_vec())
+            .unwrap_or_default();
+        let is_h2 = alpn == b"h2";
         let io = TokioIo::new(tls_stream);
 
         let service = service_fn({
@@ -303,13 +330,23 @@ impl Proxy {
             }
         });
 
-        http1::Builder::new()
-            .preserve_header_case(true)
-            .keep_alive(true)
-            .serve_connection(io, service)
-            .with_upgrades()
-            .await
-            .map_err(|e| NyxError::Http(format!("inner serve: {e}")))?;
+        if is_h2 {
+            debug!(host, "serving inner connection as HTTP/2");
+            auto::Builder::new(TokioExecutor::new())
+                .http2()
+                .timer(hyper_util::rt::TokioTimer::new())
+                .serve_connection(io, service)
+                .await
+                .map_err(|e| NyxError::Http(format!("inner h2 serve: {e}")))?;
+        } else {
+            http1::Builder::new()
+                .preserve_header_case(true)
+                .keep_alive(true)
+                .serve_connection(io, service)
+                .with_upgrades()
+                .await
+                .map_err(|e| NyxError::Http(format!("inner h1 serve: {e}")))?;
+        }
         Ok(())
     }
 
@@ -599,13 +636,22 @@ fn should_tunnel_opaquely(host: &str, cfg: &ProxyConfig) -> bool {
     cfg.scope_exclude.iter().any(|s| host.contains(s.as_str()))
 }
 
-fn build_server_config(ca: &CertAuthority, host: &str) -> NyxResult<Arc<ServerConfig>> {
+fn build_server_config(
+    ca: &CertAuthority,
+    host: &str,
+    enable_http2: bool,
+) -> NyxResult<Arc<ServerConfig>> {
     let (chain, key) = ca.leaf_for(host)?;
     let key_clone = (*key).clone_key();
-    let cfg = ServerConfig::builder()
+    let mut cfg = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(chain, key_clone)
         .map_err(|e| NyxError::Tls(e.to_string()))?;
+    if enable_http2 {
+        cfg.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+    } else {
+        cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    }
     Ok(Arc::new(cfg))
 }
 
@@ -861,5 +907,29 @@ mod tests {
         };
         assert!(should_tunnel_opaquely("other.example", &cfg));
         assert!(!should_tunnel_opaquely("api.target.example", &cfg));
+    }
+
+    #[test]
+    fn server_config_advertises_h2_and_h1_when_http2_enabled() {
+        let ca = CertAuthority::ephemeral().expect("ca generated");
+        let cfg = build_server_config(&ca, "example.com", true).expect("build cfg");
+        assert_eq!(
+            cfg.alpn_protocols,
+            vec![b"h2".to_vec(), b"http/1.1".to_vec()],
+        );
+    }
+
+    #[test]
+    fn server_config_advertises_only_h1_when_http2_disabled() {
+        let ca = CertAuthority::ephemeral().expect("ca generated");
+        let cfg = build_server_config(&ca, "example.com", false).expect("build cfg");
+        assert_eq!(cfg.alpn_protocols, vec![b"http/1.1".to_vec()]);
+    }
+
+    #[test]
+    fn default_config_enables_http2_only() {
+        let cfg = ProxyConfig::default();
+        assert!(cfg.enable_http2);
+        assert!(!cfg.enable_http3);
     }
 }

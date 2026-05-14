@@ -713,3 +713,28 @@ pub fn ws_replay(state: State<'_, AppStateSlot>, args: WsReplayArgs) -> Result<(
     })?
     .map_err(|e| e.to_string())
 }
+
+// ─── HTTP/3 upstream ───────────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct H3SendArgs {
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    /// Base64-encoded body. Optional.
+    pub body_b64: Option<String>,
+}
+
+#[tauri::command]
+pub async fn http3_send(args: H3SendArgs) -> Result<nyxproxy_core::http3::H3Response, String> {
+    use base64::Engine;
+    let body = match args.body_b64 {
+        Some(b) if !b.is_empty() => base64::engine::general_purpose::STANDARD
+            .decode(b)
+            .map_err(|e| format!("invalid base64: {e}"))?,
+        _ => Vec::new(),
+    };
+    nyxproxy_core::http3::request(&args.method, &args.url, &args.headers, &body)
+        .await
+        .map_err(|e| e.to_string())
+}

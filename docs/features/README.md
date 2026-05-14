@@ -48,6 +48,7 @@ Each feature listed here has a dedicated guide explaining what it does, how to u
 
 | Feature | Page | Doc |
 |---|---|---|
+| **HTTP/2 + HTTP/3 support** *(new in PR #7)* | Proxy + Repeater | [http2-http3.md](http2-http3.md) |
 | **WebSocket viewer & replay** *(new in PR #5)* | WebSockets | [websockets.md](websockets.md) |
 | **Hotkey palette (Ctrl + K)** *(new in PR #4)* | Global | [hotkeys.md](hotkeys.md) |
 | **Project workspaces** *(new in PR #4)* | Project options | [workspaces.md](workspaces.md) |
@@ -68,7 +69,7 @@ These features are tracked in the roadmap but not yet shipped — see `ROADMAP.m
 | AI auto-attack mode (C) | #6 |
 | Burp `.burp` import (E) | #10 |
 | Cloud sync via Supabase (F) | #7 |
-| HTTP/2 + HTTP/3 (G) | #5 |
+| ~~HTTP/2 + HTTP/3 (G)~~ — **landed in PR #7** | done |
 | AI chained scanning (H) | #6 |
 | Live multi-user (J) | #7 |
 | Distributed scanning (K) | #10 |

@@ -56,6 +56,26 @@ export interface ProxyConfig {
   intercept_enabled: boolean;
   scope_include: string[];
   scope_exclude: string[];
+  /** Whether to advertise `h2` in the MITM TLS ALPN. */
+  enable_http2: boolean;
+  /** Whether to attempt HTTP/3 (QUIC) upstream requests. */
+  enable_http3: boolean;
+}
+
+export interface H3Response {
+  status: number;
+  http_version: string;
+  headers: [string, string][];
+  body_b64: string;
+  body_size: number;
+  elapsed_ms: number;
+}
+
+export interface H3SendArgs {
+  method: string;
+  url: string;
+  headers: [string, string][];
+  body_b64?: string;
 }
 
 export interface ProxyStatus {
