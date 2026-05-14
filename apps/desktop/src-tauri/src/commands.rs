@@ -27,8 +27,9 @@ use tauri::{AppHandle, Emitter, State};
 use uuid::Uuid;
 
 use crate::ai::{
-    AiClient, AnalyzeRequestBody, AnalyzeResponse, ChatRequest, ChatResponse,
-    PayloadRequestBody, ProvidersResponse,
+    AiClient, AnalyzeRequestBody, AnalyzeResponse, AutoAttackPlan, AutoAttackRequestBody,
+    ChainScanRequestBody, ChainScanResponse, ChatRequest, ChatResponse, FuzzMutateRequestBody,
+    FuzzMutateResponse, PayloadRequestBody, ProvidersResponse,
 };
 use crate::settings::Settings;
 use crate::state::AppState;
@@ -324,6 +325,33 @@ pub async fn ai_list_providers(
 ) -> Result<ProvidersResponse, String> {
     let client = with_state(&state, ai_client_from_state)?;
     client.providers().await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_auto_attack(
+    state: State<'_, AppStateSlot>,
+    body: AutoAttackRequestBody,
+) -> Result<AutoAttackPlan, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.auto_attack(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_fuzz_mutate(
+    state: State<'_, AppStateSlot>,
+    body: FuzzMutateRequestBody,
+) -> Result<FuzzMutateResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.fuzz_mutate(body).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn ai_chain_scan(
+    state: State<'_, AppStateSlot>,
+    body: ChainScanRequestBody,
+) -> Result<ChainScanResponse, String> {
+    let client = with_state(&state, ai_client_from_state)?;
+    client.chain_scan(body).await.map_err(|e| e.to_string())
 }
 
 #[tauri::command]

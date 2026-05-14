@@ -99,3 +99,105 @@ def build_payloads_prompt(
             ),
         },
     ]
+
+
+# ---------------------------------------------------------------------------
+# AI auto-attack / chained scan / fuzz mutator (PR #6)
+# ---------------------------------------------------------------------------
+
+
+AUTO_ATTACK_SYSTEM = (
+    "You are NyxProxy's automated attack planner. Given a single HTTP request "
+    "(and optionally its response), output a JSON object describing an "
+    "ordered, prioritised attack plan a tester can execute next. "
+    "Schema:\n"
+    '{"summary": str, "vectors": [\n'
+    '  {"vuln": one of [sqli|xss|ssrf|lfi|rce|open_redirect|ssti|xxe|auth_bypass|idor|csrf|jwt|deserialization|graphql_injection|nosql|log4shell|prototype_pollution|race_condition],\n'
+    '   "parameter": str, "location": one of [query|body|header|cookie|path],\n'
+    '   "severity": one of [info|low|medium|high|critical],\n'
+    '   "payloads": [ {"payload": str, "rationale": str, "exploitability": 0-100 } ]\n'
+    "  }\n"
+    "]}\n"
+    "Output STRICT, parseable JSON. No markdown fence, no commentary."
+)
+
+
+FUZZ_MUTATE_SYSTEM = (
+    "You are NyxProxy's AI fuzz mutator. Given a single seed payload, "
+    "generate variations that explore filter-bypass techniques (encoding, "
+    "case shifting, comment insertion, alternative keywords, parameter "
+    "pollution, unicode normalisation, etc.). Output STRICT JSON of shape "
+    '{"mutations": [{"payload": str, "technique": str, "bypasses": [str]}]}.\n'
+    "No prose, no markdown."
+)
+
+
+CHAIN_SCAN_SYSTEM = (
+    "You are NyxProxy's chained scan coordinator. You receive a captured "
+    "request/response and a list of passive issues already observed. Plan "
+    "the next steps as: 1) any further passive checks, 2) active probes to "
+    "run (with concrete payloads), 3) what should land in the final report. "
+    "Output STRICT JSON of shape "
+    '{"summary": str, "risk_score": 0-100, '
+    '"steps": [{"kind": one of [passive|active|report], "title": str, '
+    '"issues": [str], "payloads_used": [str], "notes": str}], '
+    '"next_actions": [str]}.\n'
+    "No prose outside JSON."
+)
+
+
+def build_auto_attack_prompt(
+    req: HttpRequestPayload,
+    resp: HttpResponsePayload | None,
+    suspected: list[str] | None,
+    payloads_per_class: int,
+) -> list[dict[str, str]]:
+    constraint = f"Restrict the plan to vuln classes: {', '.join(suspected)}\n" if suspected else ""
+    return [
+        {"role": "system", "content": AUTO_ATTACK_SYSTEM},
+        {
+            "role": "user",
+            "content": (
+                f"{constraint}"
+                f"Target payloads per vuln class: {payloads_per_class}\n\n"
+                f"--- REQUEST ---\n{render_request(req)}\n\n"
+                f"--- RESPONSE ---\n{render_response(resp)}"
+            ),
+        },
+    ]
+
+
+def build_fuzz_mutate_prompt(
+    seed: str, parameter: str | None, attack_type: str, count: int
+) -> list[dict[str, str]]:
+    return [
+        {"role": "system", "content": FUZZ_MUTATE_SYSTEM},
+        {
+            "role": "user",
+            "content": (
+                f"Seed payload: {seed!r}\n"
+                f"Target parameter: {parameter or '(any)'}\n"
+                f"Attack class: {attack_type}\n"
+                f"Generate exactly {count} unique mutations."
+            ),
+        },
+    ]
+
+
+def build_chain_scan_prompt(
+    req: HttpRequestPayload,
+    resp: HttpResponsePayload | None,
+    issues_seen: list[str],
+) -> list[dict[str, str]]:
+    seen = "\n".join(f"- {i}" for i in issues_seen) if issues_seen else "(none)"
+    return [
+        {"role": "system", "content": CHAIN_SCAN_SYSTEM},
+        {
+            "role": "user",
+            "content": (
+                f"--- PASSIVE ISSUES ALREADY SEEN ---\n{seen}\n\n"
+                f"--- REQUEST ---\n{render_request(req)}\n\n"
+                f"--- RESPONSE ---\n{render_response(resp)}"
+            ),
+        },
+    ]
