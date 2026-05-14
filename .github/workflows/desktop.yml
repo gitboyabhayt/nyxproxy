@@ -100,5 +100,5 @@ jobs:
         with:
           name: nyxproxy-${{ matrix.target }}
           path: |
-            apps/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
+            apps/desktop/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
