@@ -38,6 +38,10 @@ import type {
   SpiderConfig,
   SpiderHit,
   Workspace,
+  WsDirection,
+  WsFrame,
+  WsOpcode,
+  WsSession,
 } from "./types";
 
 type InvokeFn = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
@@ -239,6 +243,35 @@ export const WorkspaceApi = {
     }),
   load: (path: string) => invoke<Workspace>("workspace_load_cmd", { path }),
 };
+
+export const WebSocketApi = {
+  listSessions: () => invoke<WsSession[]>("ws_list_sessions"),
+  getSession: (id: string) => invoke<WsSession | null>("ws_get_session", { id }),
+  frames: (sessionId: string) => invoke<WsFrame[]>("ws_frames", { sessionId }),
+  replay: (args: {
+    sessionId: string;
+    direction: WsDirection;
+    opcode: WsOpcode;
+    payloadB64?: string;
+    text?: string;
+  }) =>
+    invoke<void>("ws_replay", {
+      args: {
+        sessionId: args.sessionId,
+        direction: args.direction,
+        opcode: args.opcode,
+        payloadB64: args.payloadB64 ?? null,
+        text: args.text ?? null,
+      },
+    }),
+  subscribe: (handler: (event: WsEvent) => void) =>
+    listen<WsEvent>("nyxproxy://websocket", handler),
+};
+
+export type WsEvent =
+  | { kind: "session_started"; session: WsSession }
+  | { kind: "frame"; frame: WsFrame }
+  | { kind: "session_ended"; session: WsSession };
 
 /* ---------- Mock bridge for headless browser preview ---------- */
 

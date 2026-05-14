@@ -42,6 +42,7 @@ use crate::error::{NyxError, NyxResult};
 use crate::history::HistoryStore;
 use crate::intercept::{InterceptDecision, InterceptQueue};
 use crate::model::{CapturedRequest, CapturedResponse, HeaderEntry, HttpFlow, ProxyEvent};
+use crate::websocket::{self as ws, WsStore};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyConfig {
@@ -83,6 +84,7 @@ pub struct Proxy {
     pub config: Arc<RwLock<ProxyConfig>>,
     pub events: broadcast::Sender<ProxyEvent>,
     pub intercept: InterceptQueue,
+    pub ws_store: WsStore,
 }
 
 impl Proxy {
@@ -94,6 +96,7 @@ impl Proxy {
             config: Arc::new(RwLock::new(config)),
             events,
             intercept: InterceptQueue::new(),
+            ws_store: WsStore::new(),
         }
     }
 
@@ -316,6 +319,9 @@ impl Proxy {
         host: String,
         port: u16,
     ) -> Result<Response<Full<Bytes>>, Infallible> {
+        if is_websocket_upgrade(&req) {
+            return Ok(self.serve_websocket_upgrade(req, host, port).await);
+        }
         match intercepted_request(req, &host, port).await {
             Ok((captured, body)) => match forward_capture(self.clone(), captured, body).await {
                 Ok(resp) => Ok(resp),
@@ -324,6 +330,245 @@ impl Proxy {
             Err(err) => Ok(error_response(StatusCode::BAD_REQUEST, &err.to_string())),
         }
     }
+
+    /// Handle a `GET ...\r\nUpgrade: websocket` request reaching the MITM.
+    ///
+    /// We open a raw TLS connection to the upstream, send the same handshake,
+    /// wait for the 101 response, then reply 101 back to the client. Both
+    /// sides upgrade and we run [`crate::websocket::proxy_pump`] between
+    /// them, capturing every frame into [`WsStore`].
+    async fn serve_websocket_upgrade(
+        &self,
+        req: Request<Incoming>,
+        host: String,
+        port: u16,
+    ) -> Response<Full<Bytes>> {
+        let path_and_query = req
+            .uri()
+            .path_and_query()
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_else(|| "/".into());
+        let url = if port == 443 {
+            format!("wss://{host}{path_and_query}")
+        } else {
+            format!("wss://{host}:{port}{path_and_query}")
+        };
+
+        // Compute the accept token from the client's Sec-WebSocket-Key.
+        let key = match req
+            .headers()
+            .get("sec-websocket-key")
+            .and_then(|v| v.to_str().ok())
+        {
+            Some(k) => k.to_string(),
+            None => {
+                return error_response(
+                    StatusCode::BAD_REQUEST,
+                    "Sec-WebSocket-Key header missing",
+                );
+            }
+        };
+        let accept = sec_websocket_accept(&key);
+
+        // Capture handshake headers into the request store so the user can
+        // inspect what was actually sent.
+        let mut handshake_lines: Vec<u8> = Vec::with_capacity(256);
+        handshake_lines.extend_from_slice(
+            format!("GET {path_and_query} HTTP/1.1\r\n").as_bytes(),
+        );
+        let mut have_host = false;
+        for (name, value) in req.headers().iter() {
+            let lower = name.as_str().to_ascii_lowercase();
+            if lower == "host" {
+                have_host = true;
+            }
+            if matches!(
+                lower.as_str(),
+                "proxy-connection" | "proxy-authorization"
+            ) {
+                continue;
+            }
+            if let Ok(v) = value.to_str() {
+                handshake_lines.extend_from_slice(name.as_str().as_bytes());
+                handshake_lines.extend_from_slice(b": ");
+                handshake_lines.extend_from_slice(v.as_bytes());
+                handshake_lines.extend_from_slice(b"\r\n");
+            }
+        }
+        if !have_host {
+            let header = if port == 443 {
+                format!("Host: {host}\r\n")
+            } else {
+                format!("Host: {host}:{port}\r\n")
+            };
+            handshake_lines.extend_from_slice(header.as_bytes());
+        }
+        handshake_lines.extend_from_slice(b"\r\n");
+
+        let upgrade_fut = hyper::upgrade::on(req);
+
+        // Spawn the upstream bridge so we can return the 101 immediately.
+        let proxy = self.clone();
+        let host_for_task = host.clone();
+        let url_for_task = url.clone();
+        tokio::spawn(async move {
+            if let Err(err) = proxy
+                .bridge_websocket(
+                    upgrade_fut,
+                    host_for_task,
+                    port,
+                    handshake_lines,
+                    url_for_task,
+                )
+                .await
+            {
+                debug!(?err, "websocket bridge ended");
+            }
+        });
+
+        Response::builder()
+            .status(StatusCode::SWITCHING_PROTOCOLS)
+            .header("Upgrade", "websocket")
+            .header("Connection", "Upgrade")
+            .header("Sec-WebSocket-Accept", accept)
+            .body(Full::new(Bytes::new()))
+            .unwrap_or_else(|_| error_response(StatusCode::INTERNAL_SERVER_ERROR, "build 101"))
+    }
+
+    async fn bridge_websocket(
+        &self,
+        upgrade_fut: hyper::upgrade::OnUpgrade,
+        host: String,
+        port: u16,
+        handshake_bytes: Vec<u8>,
+        url: String,
+    ) -> NyxResult<()> {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio_rustls::rustls::pki_types::ServerName;
+
+        // 1) Connect TCP + TLS to upstream.
+        let tcp = TcpStream::connect((host.as_str(), port))
+            .await
+            .map_err(|e| NyxError::Upstream(format!("ws dial {host}:{port}: {e}")))?;
+
+        let root_store = root_cert_store();
+        let client_cfg = tokio_rustls::rustls::ClientConfig::builder()
+            .with_root_certificates(root_store)
+            .with_no_client_auth();
+        let connector = tokio_rustls::TlsConnector::from(Arc::new(client_cfg));
+        let server_name = ServerName::try_from(host.clone())
+            .map_err(|e| NyxError::Tls(format!("server name: {e}")))?;
+        let mut upstream = connector
+            .connect(server_name, tcp)
+            .await
+            .map_err(|e| NyxError::Tls(format!("ws connect: {e}")))?;
+
+        // 2) Send handshake and read response headers.
+        upstream
+            .write_all(&handshake_bytes)
+            .await
+            .map_err(|e| NyxError::Upstream(format!("ws handshake write: {e}")))?;
+
+        let mut response_header = Vec::with_capacity(512);
+        let mut buf = [0u8; 256];
+        loop {
+            let n = upstream
+                .read(&mut buf)
+                .await
+                .map_err(|e| NyxError::Upstream(format!("ws handshake read: {e}")))?;
+            if n == 0 {
+                return Err(NyxError::Upstream("ws upstream closed".into()));
+            }
+            response_header.extend_from_slice(&buf[..n]);
+            if response_header.windows(4).any(|w| w == b"\r\n\r\n") {
+                break;
+            }
+            if response_header.len() > 16_384 {
+                return Err(NyxError::Upstream("ws handshake too large".into()));
+            }
+        }
+        if !response_header.starts_with(b"HTTP/1.1 101")
+            && !response_header.starts_with(b"HTTP/1.0 101")
+        {
+            return Err(NyxError::Upstream(format!(
+                "ws upstream refused: {}",
+                String::from_utf8_lossy(&response_header)
+                    .lines()
+                    .next()
+                    .unwrap_or("")
+            )));
+        }
+        // Trim handshake bytes (anything past \r\n\r\n is the first frame).
+        let split = response_header
+            .windows(4)
+            .position(|w| w == b"\r\n\r\n")
+            .map(|i| i + 4)
+            .unwrap_or(response_header.len());
+        let extra_after_handshake = response_header.split_off(split);
+
+        // 3) Await the client-side upgrade.
+        let upgraded_client = upgrade_fut
+            .await
+            .map_err(|e| NyxError::Proxy(format!("client upgrade: {e}")))?;
+        let mut client_io = TokioIo::new(upgraded_client);
+
+        // If upstream already sent bytes past its handshake (rare), flush
+        // them to the client before entering the pump loop.
+        if !extra_after_handshake.is_empty() {
+            client_io
+                .write_all(&extra_after_handshake)
+                .await
+                .map_err(|e| NyxError::Proxy(format!("write extra: {e}")))?;
+        }
+
+        // 4) Register a WS session and pump frames.
+        let (session, replay_rx) = self.ws_store.start_session(url, host);
+        ws::proxy_pump(
+            self.ws_store.clone(),
+            session,
+            replay_rx,
+            client_io,
+            upstream,
+        )
+        .await
+    }
+}
+
+fn is_websocket_upgrade(req: &Request<Incoming>) -> bool {
+    let upgrade = req
+        .headers()
+        .get("upgrade")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.eq_ignore_ascii_case("websocket"))
+        .unwrap_or(false);
+    let connection = req
+        .headers()
+        .get("connection")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_ascii_lowercase().contains("upgrade"))
+        .unwrap_or(false);
+    upgrade && connection
+}
+
+fn sec_websocket_accept(key: &str) -> String {
+    use sha1::{Digest, Sha1};
+    let mut hasher = Sha1::new();
+    hasher.update(key.as_bytes());
+    hasher.update(b"258EAFA5-E914-47DA-95CA-C5AB0DC85B11");
+    let digest = hasher.finalize();
+    base64::engine::general_purpose::STANDARD.encode(digest)
+}
+
+fn root_cert_store() -> Arc<tokio_rustls::rustls::RootCertStore> {
+    use once_cell::sync::OnceCell;
+    static STORE: OnceCell<Arc<tokio_rustls::rustls::RootCertStore>> = OnceCell::new();
+    STORE
+        .get_or_init(|| {
+            let mut s = tokio_rustls::rustls::RootCertStore::empty();
+            s.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+            Arc::new(s)
+        })
+        .clone()
 }
 
 pub struct ProxyHandle {

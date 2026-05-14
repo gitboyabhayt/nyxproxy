@@ -13,6 +13,7 @@ import {
   type LucideIcon,
   Menu,
   Plug,
+  Plug2,
   PlaySquare,
   Radio,
   Radar,
@@ -38,6 +39,7 @@ import { RepeaterPage } from "@/pages/Repeater";
 import { SequencerPage } from "@/pages/Sequencer";
 import { TargetPage } from "@/pages/Target";
 import { UserOptionsPage } from "@/pages/UserOptions";
+import { WebSocketsPage } from "@/pages/WebSockets";
 import { useAppStore } from "@/state/store";
 
 type Page =
@@ -53,6 +55,7 @@ type Page =
   | "extender"
   | "collaborator"
   | "macros"
+  | "websockets"
   | "ai"
   | "project-options"
   | "user-options";
@@ -78,6 +81,7 @@ const NAV: NavEntry[] = [
   { id: "extender", label: "Extender", icon: Plug, group: "tools" },
   { id: "collaborator", label: "Collaborator", icon: Radar, group: "tools" },
   { id: "macros", label: "Macros", icon: PlaySquare, group: "tools" },
+  { id: "websockets", label: "WebSockets", icon: Plug2, group: "tools" },
   { id: "ai", label: "AI Assistant", icon: Brain, group: "tools" },
   { id: "project-options", label: "Project options", icon: SettingsIcon, group: "options" },
   { id: "user-options", label: "User options", icon: KeySquare, group: "options" },
@@ -177,6 +181,8 @@ export function App() {
         return <CollaboratorPage />;
       case "macros":
         return <MacrosPage />;
+      case "websockets":
+        return <WebSocketsPage />;
       case "ai":
         return <AiAssistantPage />;
       case "project-options":

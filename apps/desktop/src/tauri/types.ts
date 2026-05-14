@@ -400,3 +400,43 @@ export interface Workspace {
   saved_at: string;
   app_version: string;
 }
+
+// ---------------------------------------------------------------------------
+// WebSocket viewer (Feature A)
+// ---------------------------------------------------------------------------
+
+export type WsOpcode =
+  | "continuation"
+  | "text"
+  | "binary"
+  | "close"
+  | "ping"
+  | "pong"
+  | "unknown";
+
+export type WsDirection = "client_to_server" | "server_to_client";
+
+export interface WsFrame {
+  id: string;
+  session_id: string;
+  direction: WsDirection;
+  opcode: WsOpcode;
+  fin: boolean;
+  masked: boolean;
+  payload_b64: string;
+  payload_size: number;
+  text: string | null;
+  captured_at: string;
+  injected: boolean;
+}
+
+export interface WsSession {
+  id: string;
+  url: string;
+  host: string;
+  started_at: string;
+  ended_at: string | null;
+  close_code: number | null;
+  close_reason: string | null;
+  frame_count: number;
+}

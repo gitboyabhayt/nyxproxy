@@ -33,6 +33,7 @@ pub mod risk;
 pub mod scanner;
 pub mod sequencer;
 pub mod spider;
+pub mod websocket;
 pub mod workspace;
 
 pub use error::{NyxError, NyxResult};
