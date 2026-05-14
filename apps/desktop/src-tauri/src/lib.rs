@@ -114,6 +114,15 @@ pub fn run() {
             commands::ws_get_session,
             commands::ws_frames,
             commands::ws_replay,
+            commands::graphql_list_endpoints,
+            commands::graphql_introspection_query,
+            commands::graphql_parse_introspection,
+            commands::graphql_build_attack_plan,
+            commands::pcap_export_cmd,
+            commands::compliance_build_cmd,
+            commands::compliance_render_html_cmd,
+            commands::compliance_render_md_cmd,
+            commands::open_embedded_browser_cmd,
         ])
         .run(tauri::generate_context!())
         .expect("error while running NyxProxy");

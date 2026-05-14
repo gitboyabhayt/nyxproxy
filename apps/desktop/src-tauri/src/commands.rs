@@ -4,7 +4,10 @@ use std::sync::Arc;
 
 use futures_util::StreamExt;
 use nyxproxy_core::burp_import::{self, BurpImportSummary};
+use nyxproxy_core::compliance::{self, ComplianceFramework, ComplianceReport};
 use nyxproxy_core::decoder::{self, Codec, DecoderResult};
+use nyxproxy_core::graphql::{self, GraphQLAttackCase, GraphQLSchema};
+use nyxproxy_core::pcap;
 use nyxproxy_core::history::HistoryEntry;
 use nyxproxy_core::intercept::InterceptEntry;
 use nyxproxy_core::intruder::{run as run_intruder, IntruderAttempt, IntruderConfig};
@@ -787,4 +790,144 @@ pub fn ws_replay(state: State<'_, AppStateSlot>, args: WsReplayArgs) -> Result<(
             .replay(id, args.direction, args.opcode, bytes)
     })?
     .map_err(|e| e.to_string())
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL native (Feature R)
+// ---------------------------------------------------------------------------
+
+/// Return the list of history flows that look like GraphQL requests.
+#[tauri::command]
+pub fn graphql_list_endpoints(state: State<'_, AppStateSlot>) -> Result<Vec<String>, String> {
+    with_state(&state, |s| {
+        let mut urls: Vec<String> = s
+            .history
+            .list()
+            .into_iter()
+            .filter(|e| graphql::is_graphql_request(&e.flow))
+            .map(|e| e.flow.request.url.clone())
+            .collect();
+        urls.sort();
+        urls.dedup();
+        urls
+    })
+}
+
+/// Return the canonical introspection query string.
+#[tauri::command]
+pub fn graphql_introspection_query() -> Result<String, String> {
+    Ok(graphql::introspection_query().to_string())
+}
+
+/// Parse a JSON introspection response body into a structured schema.
+#[tauri::command]
+pub fn graphql_parse_introspection(body: String) -> Result<GraphQLSchema, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| format!("invalid JSON: {e}"))?;
+    graphql::parse_introspection(&value).map_err(|e| e.to_string())
+}
+
+/// Build a deterministic GraphQL attack plan. `schema_json` is optional —
+/// when provided, the alias-overload case uses an actual query-type field
+/// instead of `__typename`.
+#[tauri::command]
+pub fn graphql_build_attack_plan(
+    schema_json: Option<String>,
+) -> Result<Vec<GraphQLAttackCase>, String> {
+    let schema: Option<GraphQLSchema> = match schema_json {
+        Some(s) if !s.trim().is_empty() => {
+            Some(serde_json::from_str(&s).map_err(|e| format!("invalid schema JSON: {e}"))?)
+        }
+        _ => None,
+    };
+    Ok(graphql::build_attack_plan(schema.as_ref()))
+}
+
+// ---------------------------------------------------------------------------
+// PCAP export (Feature GG)
+// ---------------------------------------------------------------------------
+
+/// Export the current history (or a filtered subset) as a libpcap file.
+/// `flow_ids` is optional — when empty, every flow is exported.
+#[tauri::command]
+pub fn pcap_export_cmd(
+    state: State<'_, AppStateSlot>,
+    path: String,
+    flow_ids: Option<Vec<String>>,
+) -> Result<usize, String> {
+    let bytes = with_state(&state, |s| {
+        let mut flows: Vec<_> = s.history.list().into_iter().map(|e| e.flow).collect();
+        if let Some(ids) = &flow_ids {
+            let allow: std::collections::HashSet<&String> = ids.iter().collect();
+            flows.retain(|f| allow.contains(&f.id.to_string()));
+        }
+        flows
+    })?;
+    let count = bytes.len();
+    let out = pcap::write_pcap(&bytes).map_err(|e| e.to_string())?;
+    std::fs::write(&path, out).map_err(|e| format!("write {path}: {e}"))?;
+    Ok(count)
+}
+
+// ---------------------------------------------------------------------------
+// Compliance reports (Feature II)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ComplianceBuildArgs {
+    pub issues: Vec<Issue>,
+    pub frameworks: Vec<ComplianceFramework>,
+}
+
+#[tauri::command]
+pub fn compliance_build_cmd(args: ComplianceBuildArgs) -> Result<ComplianceReport, String> {
+    Ok(compliance::build_report(&args.issues, &args.frameworks))
+}
+
+#[tauri::command]
+pub fn compliance_render_html_cmd(report: ComplianceReport) -> Result<String, String> {
+    Ok(compliance::render_html(&report))
+}
+
+#[tauri::command]
+pub fn compliance_render_md_cmd(report: ComplianceReport) -> Result<String, String> {
+    Ok(compliance::render_markdown(&report))
+}
+
+// ---------------------------------------------------------------------------
+// Embedded Chromium browser (Feature DD)
+// ---------------------------------------------------------------------------
+
+/// Open a new Tauri webview window pre-configured to route through the
+/// NyxProxy listener. The browser uses the OS's webview (WebKitGTK on
+/// Linux, WebView2 on Windows, WKWebView on macOS) — all three respect
+/// the per-webview proxy URL we pass them.
+///
+/// `target_url` is the page to open. `proxy_url` overrides the
+/// `http://host:port` we route through; when omitted we use the proxy's
+/// current listen address.
+#[tauri::command]
+pub async fn open_embedded_browser_cmd(
+    app: AppHandle,
+    state: State<'_, AppStateSlot>,
+    target_url: String,
+    proxy_url: Option<String>,
+) -> Result<String, String> {
+    let listen = with_state(&state, |s| s.proxy.snapshot_config().listen_addr.clone())?;
+    let proxy = proxy_url.unwrap_or_else(|| format!("http://{listen}"));
+    let target = url::Url::parse(&target_url).map_err(|e| format!("bad target URL: {e}"))?;
+    let proxy_parsed = url::Url::parse(&proxy).map_err(|e| format!("bad proxy URL: {e}"))?;
+    let label = format!("nyx-browser-{}", uuid::Uuid::new_v4().simple());
+    tauri::WebviewWindowBuilder::new(
+        &app,
+        label.clone(),
+        tauri::WebviewUrl::External(target),
+    )
+    .title(format!("NyxProxy Browser — proxy {proxy}"))
+    .inner_size(1280.0, 800.0)
+    .proxy_url(proxy_parsed)
+    .build()
+    .map_err(|e| format!("create webview: {e}"))?;
+    Ok(label)
 }
