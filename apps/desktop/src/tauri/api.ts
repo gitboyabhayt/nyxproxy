@@ -225,6 +225,243 @@ export const MacrosApi = {
     }),
 };
 
+// ---------------------------------------------------------------------------
+// Cloud sync — Feature F (Supabase). Pure backend HTTP, no Tauri command.
+// ---------------------------------------------------------------------------
+
+export interface SyncWorkspace {
+  id: string;
+  owner: string;
+  revision: number;
+  payload: Record<string, unknown>;
+}
+
+export interface SyncStatus {
+  enabled: boolean;
+  provider: string | null;
+}
+
+export interface SyncPullResponse {
+  workspace: SyncWorkspace | null;
+  updated_at: string | null;
+}
+
+export const SyncApi = {
+  async status(backendUrl: string, token?: string): Promise<SyncStatus> {
+    const url = `${backendUrl.replace(/\/$/, "")}/sync/status`;
+    const res = await fetch(url, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as SyncStatus;
+  },
+  async push(
+    backendUrl: string,
+    workspace: SyncWorkspace,
+    opts: { token?: string; expectedRevision?: number | null } = {},
+  ): Promise<{ workspace: SyncWorkspace; updated_at: string }> {
+    const url = `${backendUrl.replace(/\/$/, "")}/sync/push`;
+    const body: Record<string, unknown> = { workspace };
+    if (opts.expectedRevision !== undefined && opts.expectedRevision !== null)
+      body.expected_revision = opts.expectedRevision;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(opts.token) },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`HTTP ${res.status}: ${text}`);
+    }
+    return (await res.json()) as { workspace: SyncWorkspace; updated_at: string };
+  },
+  async pull(
+    backendUrl: string,
+    owner: string,
+    workspaceId: string,
+    token?: string,
+  ): Promise<SyncPullResponse> {
+    const url = `${backendUrl.replace(/\/$/, "")}/sync/pull/${encodeURIComponent(owner)}/${encodeURIComponent(workspaceId)}`;
+    const res = await fetch(url, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as SyncPullResponse;
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Live collaboration — Feature J. Thin wrapper around the WebSocket.
+// ---------------------------------------------------------------------------
+
+export interface CollabPeer {
+  peer_id: string;
+  display_name: string;
+  joined_at: number;
+}
+
+export interface CollabMessage {
+  type: string;
+  from?: string;
+  ts?: number;
+  [key: string]: unknown;
+}
+
+export class CollabRoomClient {
+  private ws: WebSocket | null = null;
+  private listeners = new Set<(msg: CollabMessage) => void>();
+
+  constructor(
+    private readonly backendUrl: string,
+    public readonly roomId: string,
+    public readonly peerId: string,
+    public readonly displayName: string,
+  ) {}
+
+  connect(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        const base = this.backendUrl.replace(/^http/, "ws").replace(/\/$/, "");
+        const ws = new WebSocket(`${base}/collab/room/${encodeURIComponent(this.roomId)}`);
+        this.ws = ws;
+        ws.onopen = () => {
+          ws.send(
+            JSON.stringify({ peer_id: this.peerId, display_name: this.displayName }),
+          );
+          resolve();
+        };
+        ws.onmessage = (evt) => {
+          try {
+            const data = JSON.parse(evt.data) as CollabMessage;
+            for (const l of this.listeners) l(data);
+          } catch {
+            /* ignore non-json */
+          }
+        };
+        ws.onerror = () => reject(new Error("WebSocket connection failed"));
+      } catch (err) {
+        reject(err as Error);
+      }
+    });
+  }
+
+  publish(type: string, payload: Record<string, unknown>): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    this.ws.send(JSON.stringify({ type, ...payload }));
+  }
+
+  on(handler: (msg: CollabMessage) => void): () => void {
+    this.listeners.add(handler);
+    return () => this.listeners.delete(handler);
+  }
+
+  close(): void {
+    this.ws?.close();
+    this.ws = null;
+    this.listeners.clear();
+  }
+}
+
+export const CollabApi = {
+  async listRooms(backendUrl: string): Promise<{ rooms: { id: string; peer_count: number; peers: CollabPeer[] }[] }> {
+    const url = `${backendUrl.replace(/\/$/, "")}/collab/rooms`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as { rooms: { id: string; peer_count: number; peers: CollabPeer[] }[] };
+  },
+};
+
+// ---------------------------------------------------------------------------
+// Distributed scan fleet — Feature K.
+// ---------------------------------------------------------------------------
+
+export interface ScanTargetSpec {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body_b64?: string | null;
+}
+
+export interface ScanJobInput {
+  target: ScanTargetSpec;
+  rules: string[];
+  label?: string | null;
+}
+
+export interface ScanJob {
+  id: string;
+  target: ScanTargetSpec;
+  rules: string[];
+  label: string | null;
+  status: "queued" | "in_progress" | "done" | "failed";
+  worker_id: string | null;
+  created_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+  result: { findings: Record<string, unknown>[]; error: string | null; elapsed_ms: number } | null;
+}
+
+function authHeaders(token?: string): Record<string, string> {
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+export const ScanFleetApi = {
+  async enqueue(
+    backendUrl: string,
+    jobs: ScanJobInput[],
+    token?: string,
+  ): Promise<{ ids: string[] }> {
+    const url = `${backendUrl.replace(/\/$/, "")}/scan/jobs`;
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...authHeaders(token) },
+      body: JSON.stringify({ jobs }),
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
+    return (await res.json()) as { ids: string[] };
+  },
+  async list(backendUrl: string, token?: string, status?: string): Promise<ScanJob[]> {
+    const qp = status ? `?status=${encodeURIComponent(status)}` : "";
+    const url = `${backendUrl.replace(/\/$/, "")}/scan/jobs${qp}`;
+    const res = await fetch(url, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as ScanJob[];
+  },
+  async get(backendUrl: string, id: string, token?: string): Promise<ScanJob> {
+    const url = `${backendUrl.replace(/\/$/, "")}/scan/jobs/${encodeURIComponent(id)}`;
+    const res = await fetch(url, { headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as ScanJob;
+  },
+  async clear(backendUrl: string, token?: string, status?: string): Promise<{ deleted: number }> {
+    const qp = status ? `?status=${encodeURIComponent(status)}` : "";
+    const url = `${backendUrl.replace(/\/$/, "")}/scan/jobs${qp}`;
+    const res = await fetch(url, { method: "DELETE", headers: authHeaders(token) });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return (await res.json()) as { deleted: number };
+  },
+};
+
+export const PlaywrightApi = {
+  detect: () =>
+    invoke<import("./types").PlaywrightAvailability>("playwright_detect_cmd"),
+  list: () =>
+    invoke<import("./types").PlaywrightRecording[]>("playwright_recordings_list"),
+  importSpec: (name: string, spec: string, description?: string) =>
+    invoke<import("./types").PlaywrightRecording>(
+      "playwright_recording_import",
+      { args: { name, description: description ?? "", spec } },
+    ),
+  parse: (spec: string) =>
+    invoke<import("./types").PlaywrightRecording>(
+      "playwright_parse_cmd",
+      { args: { spec } },
+    ),
+  save: (recording: import("./types").PlaywrightRecording) =>
+    invoke<import("./types").PlaywrightRecording>(
+      "playwright_recording_save",
+      { recording },
+    ),
+  delete: (id: string) =>
+    invoke<boolean>("playwright_recording_delete", { id }),
+};
+
 export const InterceptApi = {
   list: () => invoke<InterceptEntry[]>("intercept_list"),
   forward: (id: string, request?: import("./types").CapturedRequest, bodyB64?: string) =>
@@ -715,6 +952,31 @@ function makeMockBridge(): TauriBridge {
           final_variables: {},
           succeeded: true,
         } as unknown as never;
+      case "playwright_detect_cmd":
+        return {
+          available: false,
+          version: null,
+          install_hint:
+            "Run `npm install -D @playwright/test && npx playwright install` in any working directory, then refresh this page.",
+        } as unknown as never;
+      case "playwright_recordings_list":
+        return [] as unknown as never;
+      case "playwright_recording_import":
+      case "playwright_parse_cmd":
+      case "playwright_recording_save":
+        return {
+          id: "mock-recording",
+          name:
+            (args?.args as Record<string, unknown> | undefined)?.name as
+              | string
+              | undefined ?? "Recorded macro",
+          description: "",
+          actions: [],
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as unknown as never;
+      case "playwright_recording_delete":
+        return true as unknown as never;
       case "spider_run":
         return [] as unknown as never;
       case "report_build":

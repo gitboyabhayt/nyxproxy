@@ -19,6 +19,9 @@ use nyxproxy_core::nyxshare::{self, ShareManifest, SharePayload};
 use nyxproxy_core::openapi::{self, OpenApiPlan};
 use nyxproxy_core::owasp::{self, OwaspCategory};
 use nyxproxy_core::owasp_dashboard::{self, OwaspDashboard};
+use nyxproxy_core::playwright::{
+    self, PlaywrightAvailability, PlaywrightRecording,
+};
 use nyxproxy_core::selfhost::{self, SelfHostBundle, SelfHostConfig};
 use nyxproxy_core::plugins::PluginDescriptor;
 use nyxproxy_core::proxy::ProxyConfig;
@@ -519,6 +522,75 @@ pub async fn macros_run(
         return Err(format!("macro {} not found", args.id));
     };
     Ok(run_macro(&mac, args.variables).await)
+}
+
+// ---------------------------------------------------------------------------
+// Playwright-recorded browser macros (Burp Pro parity — feature B)
+// ---------------------------------------------------------------------------
+
+#[tauri::command]
+pub fn playwright_detect_cmd() -> Result<PlaywrightAvailability, String> {
+    Ok(playwright::detect_playwright())
+}
+
+#[tauri::command]
+pub fn playwright_recordings_list(
+    state: State<'_, AppStateSlot>,
+) -> Result<Vec<PlaywrightRecording>, String> {
+    with_state(&state, |s| s.playwright.list())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlaywrightImportArgs {
+    pub name: String,
+    #[serde(default)]
+    pub description: String,
+    pub spec: String,
+}
+
+#[tauri::command]
+pub fn playwright_recording_import(
+    state: State<'_, AppStateSlot>,
+    args: PlaywrightImportArgs,
+) -> Result<PlaywrightRecording, String> {
+    let mut recording =
+        playwright::parse_codegen_spec(&args.spec).map_err(|e| e.to_string())?;
+    if !args.name.trim().is_empty() {
+        recording.name = args.name;
+    }
+    recording.description = args.description;
+    let store = with_state(&state, |s| s.playwright.clone())?;
+    store.save(recording).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn playwright_recording_save(
+    state: State<'_, AppStateSlot>,
+    recording: PlaywrightRecording,
+) -> Result<PlaywrightRecording, String> {
+    let store = with_state(&state, |s| s.playwright.clone())?;
+    store.save(recording).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn playwright_recording_delete(
+    state: State<'_, AppStateSlot>,
+    id: String,
+) -> Result<bool, String> {
+    let store = with_state(&state, |s| s.playwright.clone())?;
+    store.delete(&id).map_err(|e| e.to_string())
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlaywrightParseArgs {
+    pub spec: String,
+}
+
+#[tauri::command]
+pub fn playwright_parse_cmd(
+    args: PlaywrightParseArgs,
+) -> Result<PlaywrightRecording, String> {
+    playwright::parse_codegen_spec(&args.spec).map_err(|e| e.to_string())
 }
 
 #[tauri::command]

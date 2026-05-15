@@ -2,7 +2,7 @@
 
 > **Scope of this document.** A point-by-point comparison of NyxProxy (this repo, current `main`) against **Burp Suite Community 2024.x** and **Burp Suite Professional 2024.x**. Every "Yes" entry for NyxProxy is backed by a code path on `main`; every "Partial" is called out honestly with the gap.
 
-Last updated: May 2026 after batch 3 (`devin/1778757151-batch3-features`). See also: `docs/NEXT-SESSION-PROMPT.md` for the roadmap of the remaining 20 features.
+Last updated: May 2026 after batch 4 (`devin/1778776529-batch4-features`). See also: `docs/NEXT-SESSION-PROMPT.md` for the roadmap of the remaining 16 features.
 
 ## TL;DR
 
@@ -74,7 +74,7 @@ The rest of this doc is the actual feature matrix.
 | Site map | Yes | Yes | **Yes** — `pages/Target.tsx` |
 | Scope (include / exclude) | Yes | Yes | **Yes** |
 | Spider / crawler (respects robots.txt) | No | Yes | **Yes** — `crates/.../spider.rs` (async BFS) |
-| Recorded login replay for authenticated spider | No | Yes | **Partial** — `crates/.../macros.rs` (manual chain); Playwright recording is roadmap B (next-session batch 4) |
+| Recorded login replay for authenticated spider | No | Yes | **Yes** — `crates/.../macros.rs` (manual chain) + `crates/.../playwright.rs` (Playwright codegen import), [`features/recorded-macros.md`](../features/recorded-macros.md) |
 
 ## 6 · Sequencer
 
@@ -97,7 +97,7 @@ The rest of this doc is the actual feature matrix.
 | --- | --- | --- | --- |
 | Recorded request chains | Yes (basic) | Yes (rich) | **Yes** — `crates/.../macros.rs` (variable extraction) |
 | Variable extraction across requests | Yes | Yes | **Yes** |
-| Playwright / browser-recorded login | No | Manual via Burp Browser | No — roadmap B (next-session batch 4) |
+| Playwright / browser-recorded login | No | Manual via Burp Browser | **Yes** — import `npx playwright codegen` `.spec.ts` directly; parser at `crates/.../playwright.rs`, [`features/recorded-macros.md`](../features/recorded-macros.md) |
 
 ## 9 · Reporting
 
@@ -137,7 +137,7 @@ The rest of this doc is the actual feature matrix.
 | --- | --- | --- | --- |
 | Save / load full session | **No** (this is the biggest Community limitation) | Yes — `.burp` project files | **Yes** — `.nyxproxy` (zstd, magic `NYXPRJ`), `crates/.../workspace.rs` |
 | Import existing `.burp` project | n/a | n/a | **Yes** — `crates/.../burp_import.rs`, Project options panel, `docs/features/burp-import.md` |
-| Cloud sync of workspace | No | No | No — roadmap F (next-session batch 4) |
+| Cloud sync of workspace | No | No | **Yes (opt-in)** — Supabase-backed `/sync/*` routes, optimistic concurrency, [`features/cloud-sync.md`](../features/cloud-sync.md) |
 | Encrypted **local** evidence packs | No | No | **Yes** — `crates/.../nyxshare.rs` (ChaCha20-Poly1305 + Argon2id), `docs/features/nyxshare.md` |
 | Encrypted cloud backups | No | No | No — roadmap CC (next-session batch 6) |
 | Self-hosting wizard (Docker bundle generator) | n/a | n/a | **Yes** — `crates/.../selfhost.rs`, `docs/features/self-host.md` |
@@ -146,7 +146,7 @@ The rest of this doc is the actual feature matrix.
 
 | Feature | Burp Community | Burp Professional | NyxProxy |
 | --- | --- | --- | --- |
-| Multi-user live session | No | No (Burp Enterprise has separate model) | No — roadmap J (next-session batch 4) |
+| Multi-user live session | No | No (Burp Enterprise has separate model) | **Yes** — WebSocket signalling room, presence + chat + live cursors, [`features/collaboration.md`](../features/collaboration.md) |
 | Continuous monitoring with baseline diff | No | No | **Yes** — `crates/.../monitor.rs`, `docs/features/monitor.md` |
 | Live OWASP Top-10 dashboard vs industry baseline | No | No | **Yes** — `crates/.../owasp_dashboard.rs`, `docs/features/owasp-dashboard.md` |
 | In-app chat / threads per finding | No | No | No — roadmap X |
@@ -180,7 +180,7 @@ These are real gaps on `main` today. None of them are architectural — all are 
 1. **HTTP/2 in the MITM client→proxy hop.** Browser → proxy is HTTP/1.1 only; upstream supports h2 via reqwest.
 2. **DNS Collaborator.** HTTP OOB works; DNS callbacks require a public name-server lease (Burp Pro uses oastify.com).
 3. **Embedded Chromium (Burp's Browser).** Pro's "Open Burp's Browser" is a killer convenience — NyxProxy still requires manual browser proxy config + CA trust.
-4. **Recorded login macros (Playwright).** Burp Pro can record a login in the embedded browser and replay it.
+<!-- 4. ~Recorded login macros (Playwright).~ Landed in batch 4 — see features/recorded-macros.md -->
 5. **`.burp` project import.** Users coming from Pro need to bring 5+ years of history with them.
 6. **Burp Bambdas compatibility shim.** Many users have Bambdas already; we run JS plugins, they're Java DSL.
 7. **DAST in CI (Burp Scanner CLI).** Pro ships a headless scanner runner; ours exists at the crate level but no first-class CI action yet.
@@ -193,6 +193,8 @@ Each is tracked in `docs/features/README.md` → "Coming soon" with a target PR 
 
 Things NyxProxy ships that **neither** Burp tier offers:
 
+- Live multi-user collaboration over a hosted WebSocket signalling room — presence, chat, live cursors. Burp has no equivalent at any tier.
+- Distributed scan fleet: horizontally scale the passive scanner across N worker processes, all coordinating via a SQLite-backed job queue (`apps/desktop/crates/nyxproxy-worker`).
 - AI-driven payload generation, scan chaining, response-driven fuzz mutation — out of the box, no plugins, no license.
 - 9-provider AI gateway with hosted free-tier keys so users with zero AI accounts still get assistance.
 - Native Rust binary — boot < 1 s, RSS ~80 MB cold (vs. JVM ~600 MB).

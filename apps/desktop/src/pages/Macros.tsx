@@ -1,14 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { ListChecks, Play, Plus, Save, Trash2 } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  Film,
+  ListChecks,
+  Play,
+  Plus,
+  Save,
+  Trash2,
+  Upload,
+} from "lucide-react";
 
 import { useAppStore } from "@/state/store";
-import { MacrosApi } from "@/tauri/api";
+import { MacrosApi, PlaywrightApi } from "@/tauri/api";
 import type {
   Extraction,
   ExtractionSource,
   Macro,
   MacroRunResult,
   MacroStep,
+  PlaywrightAction,
+  PlaywrightAvailability,
+  PlaywrightRecording,
 } from "@/tauri/types";
 
 const SOURCES: { value: ExtractionSource; label: string; hint: string }[] = [
@@ -65,6 +78,278 @@ function decodeBody(b64: string): string {
     );
   } catch {
     return atob(b64);
+  }
+}
+
+function PlaywrightRecordingsSection() {
+  const toast = useAppStore((s) => s.toast);
+  const [open, setOpen] = useState(false);
+  const [availability, setAvailability] = useState<PlaywrightAvailability | null>(
+    null,
+  );
+  const [recordings, setRecordings] = useState<PlaywrightRecording[]>([]);
+  const [importOpen, setImportOpen] = useState(false);
+  const [importName, setImportName] = useState("");
+  const [importDescription, setImportDescription] = useState("");
+  const [importSpec, setImportSpec] = useState("");
+  const [selected, setSelected] = useState<PlaywrightRecording | null>(null);
+
+  const loadAvailability = async () => {
+    try {
+      setAvailability(await PlaywrightApi.detect());
+    } catch (err) {
+      toast("error", `Detect Playwright failed: ${err}`);
+    }
+  };
+
+  const loadRecordings = async () => {
+    try {
+      setRecordings(await PlaywrightApi.list());
+    } catch (err) {
+      toast("error", `Recording list failed: ${err}`);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    loadAvailability();
+    loadRecordings();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const importSpecSubmit = async () => {
+    if (!importSpec.trim()) {
+      toast("error", "Paste a Playwright .spec.ts before importing.");
+      return;
+    }
+    try {
+      const saved = await PlaywrightApi.importSpec(
+        importName.trim() || "Recorded macro",
+        importSpec,
+        importDescription,
+      );
+      toast(
+        "info",
+        `Imported "${saved.name}" with ${saved.actions.length} action(s).`,
+      );
+      setImportSpec("");
+      setImportName("");
+      setImportDescription("");
+      setImportOpen(false);
+      await loadRecordings();
+    } catch (err) {
+      toast("error", `Import failed: ${err}`);
+    }
+  };
+
+  const remove = async (id: string) => {
+    if (!confirm("Delete this recording?")) return;
+    try {
+      await PlaywrightApi.delete(id);
+      if (selected?.id === id) setSelected(null);
+      await loadRecordings();
+    } catch (err) {
+      toast("error", `Delete failed: ${err}`);
+    }
+  };
+
+  return (
+    <div className="panel" style={{ marginBottom: 8 }}>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="panel-header"
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          width: "100%",
+          background: "transparent",
+          border: "none",
+          textAlign: "left",
+          cursor: "pointer",
+          padding: "8px 12px",
+          color: "inherit",
+        }}
+      >
+        {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        <Film size={14} />
+        <strong>Browser-recorded macros (Playwright)</strong>
+        <span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 8 }}>
+          {recordings.length} saved
+        </span>
+      </button>
+      {open && (
+        <div className="panel-body" style={{ padding: 12, display: "flex", flexDirection: "column", gap: 10 }}>
+          {availability && (
+            <div
+              className="row-wrap"
+              style={{ alignItems: "center", fontSize: 12 }}
+            >
+              <span
+                className={`badge ${availability.available ? "badge-low" : "badge-medium"}`}
+              >
+                {availability.available
+                  ? `Playwright ${availability.version ?? ""}`
+                  : "Playwright not detected"}
+              </span>
+              <span className="muted">{availability.install_hint}</span>
+            </div>
+          )}
+          <div className="row-wrap">
+            <button
+              className="btn primary"
+              type="button"
+              onClick={() => setImportOpen((v) => !v)}
+            >
+              <Upload size={14} /> Import codegen .spec.ts
+            </button>
+            <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+              Record with{" "}
+              <code className="kbd">
+                npx playwright codegen --target javascript &lt;url&gt;
+              </code>
+              {" "}then paste the output here.
+            </span>
+          </div>
+          {importOpen && (
+            <div className="panel" style={{ padding: 10 }}>
+              <div className="row-wrap" style={{ marginBottom: 8 }}>
+                <input
+                  placeholder="Recording name"
+                  value={importName}
+                  onChange={(e) => setImportName(e.target.value)}
+                  style={{ flex: 1, minWidth: 200 }}
+                />
+              </div>
+              <input
+                placeholder="Description (optional)"
+                value={importDescription}
+                onChange={(e) => setImportDescription(e.target.value)}
+                style={{ width: "100%", marginBottom: 8 }}
+              />
+              <textarea
+                className="mono"
+                rows={10}
+                value={importSpec}
+                onChange={(e) => setImportSpec(e.target.value)}
+                placeholder={`import { test, expect } from '@playwright/test';\n\ntest('login', async ({ page }) => {\n  await page.goto('https://example.com/login');\n  await page.getByRole('textbox', { name: 'Email' }).fill('user@example.com');\n  // ...\n});`}
+                style={{ width: "100%" }}
+              />
+              <div className="row-wrap" style={{ marginTop: 8 }}>
+                <button className="btn primary" type="button" onClick={importSpecSubmit}>
+                  Import
+                </button>
+                <button
+                  className="btn ghost"
+                  type="button"
+                  onClick={() => setImportOpen(false)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+          {recordings.length === 0 ? (
+            <div className="muted" style={{ fontSize: 12 }}>
+              No recordings yet — import a codegen spec to capture a login flow.
+            </div>
+          ) : (
+            <div className="row-wrap" style={{ alignItems: "flex-start" }}>
+              <div
+                className="panel"
+                style={{ flex: "1 1 220px", minWidth: 220, maxHeight: 260, overflow: "auto" }}
+              >
+                {recordings.map((r) => (
+                  <div
+                    key={r.id}
+                    className={`nav-item ${selected?.id === r.id ? "active" : ""}`}
+                    onClick={() => setSelected(r)}
+                    style={{ flexDirection: "column", alignItems: "flex-start", gap: 2 }}
+                  >
+                    <span style={{ fontWeight: 600 }}>{r.name}</span>
+                    <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                      {r.actions.length} action{r.actions.length === 1 ? "" : "s"}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div
+                className="panel"
+                style={{
+                  flex: "2 1 320px",
+                  minWidth: 280,
+                  padding: 10,
+                  maxHeight: 260,
+                  overflow: "auto",
+                }}
+              >
+                {!selected ? (
+                  <div className="muted" style={{ fontSize: 12 }}>
+                    Select a recording on the left to inspect its steps.
+                  </div>
+                ) : (
+                  <>
+                    <div className="row-wrap" style={{ marginBottom: 8 }}>
+                      <strong>{selected.name}</strong>
+                      <span className="muted" style={{ fontSize: 11 }}>
+                        Saved {new Date(selected.updated_at).toLocaleString()}
+                      </span>
+                      <span style={{ flex: 1 }} />
+                      <button
+                        className="btn danger small"
+                        type="button"
+                        onClick={() => remove(selected.id)}
+                      >
+                        <Trash2 size={12} /> Delete
+                      </button>
+                    </div>
+                    {selected.description && (
+                      <p className="muted" style={{ fontSize: 12 }}>
+                        {selected.description}
+                      </p>
+                    )}
+                    <ol
+                      style={{
+                        margin: 0,
+                        paddingLeft: 18,
+                        fontSize: 12,
+                        fontFamily: "var(--font-mono)",
+                      }}
+                    >
+                      {selected.actions.map((a, i) => (
+                        <li key={i} style={{ marginBottom: 4 }}>
+                          {renderPlaywrightAction(a)}
+                        </li>
+                      ))}
+                    </ol>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function renderPlaywrightAction(a: PlaywrightAction): string {
+  switch (a.kind) {
+    case "navigate":
+      return `navigate("${a.url}")`;
+    case "click":
+      return `click(${a.selector})`;
+    case "fill":
+      return `fill(${a.selector}, "${a.value}")`;
+    case "press":
+      return `press(${a.selector}, "${a.key}")`;
+    case "wait_for_url":
+      return `wait_for_url("${a.url}")`;
+    case "expect_url":
+      return `expect_url("${a.url}")`;
+    case "raw":
+      return `// ${a.line}`;
   }
 }
 
@@ -270,6 +555,8 @@ export function MacrosPage() {
           </>
         )}
       </div>
+
+      <PlaywrightRecordingsSection />
 
       <div
         className="main-content"

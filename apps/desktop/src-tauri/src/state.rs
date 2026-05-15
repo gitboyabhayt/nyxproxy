@@ -9,6 +9,7 @@ use nyxproxy_core::ca::CertAuthority;
 use nyxproxy_core::history::HistoryStore;
 use nyxproxy_core::macros::MacroStore;
 use nyxproxy_core::monitor::MonitorState;
+use nyxproxy_core::playwright::PlaywrightStore;
 use nyxproxy_core::plugins::PluginManager;
 use nyxproxy_core::proxy::{Proxy, ProxyConfig, ProxyHandle};
 use parking_lot::Mutex;
@@ -26,6 +27,7 @@ pub struct AppState {
     pub settings: SettingsStore,
     pub plugins: PluginManager,
     pub macros: MacroStore,
+    pub playwright: PlaywrightStore,
     pub monitor: Arc<Mutex<MonitorState>>,
 }
 
@@ -80,6 +82,7 @@ impl AppState {
         }
 
         let macros = MacroStore::open(data_dir.join("macros.json"))?;
+        let playwright = PlaywrightStore::open(data_dir.join("playwright"))?;
 
         // Continuous monitoring: load any persisted schedules if present.
         let monitor_path = data_dir.join("monitor.json");
@@ -116,6 +119,7 @@ impl AppState {
             settings,
             plugins,
             macros,
+            playwright,
             monitor,
         })
     }

@@ -1,0 +1,26 @@
+[package]
+name = "nyxproxy-worker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Headless NyxProxy scanner worker — long-polls a backend job queue and posts results. Used by the distributed scan fleet (Feature K)."
+
+[[bin]]
+name = "nyxproxy-worker"
+path = "src/main.rs"
+
+[dependencies]
+nyxproxy-core = { path = "../nyxproxy-core" }
+anyhow.workspace = true
+base64.workspace = true
+chrono.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+url.workspace = true
+uuid.workspace = true

@@ -98,8 +98,12 @@ NYXPROXY_BACKEND_URL="https://my-backend.example.com" cargo tauri build
 | **CVE / CWE mapping** | Phase 6 | Backend route `/findings/map-cve` returns deterministic CVE/CWE associations for a finding description (offline, no API call). |
 | **Risk scoring** | Phase 6 | Deterministic 0–100 score combining severity, confidence and OWASP-category bias; aggregate summary per workspace. |
 | **Command palette (Ctrl+K)** | Phase 6 | Fuzzy command search over every page and action; recents tracked in `localStorage`. |
+| **Recorded Playwright macros** | Batch 4 | Import `npx playwright codegen` `.spec.ts` traces and replay them as authenticated login macros. See [docs/features/recorded-macros.md](docs/features/recorded-macros.md). |
+| **Cloud sync (Supabase)** | Batch 4 | Opt-in workspace sync with optimistic-concurrency revisions. Returns `feature_disabled` when not configured. See [docs/features/cloud-sync.md](docs/features/cloud-sync.md). |
+| **Live multi-user collaboration** | Batch 4 | WebSocket signalling room with presence, chat, and live cursor events. No persistence — pure real-time. See [docs/features/collaboration.md](docs/features/collaboration.md). |
+| **Distributed scan fleet** | Batch 4 | Horizontally scale the passive scanner across `nyxproxy-worker` processes via a SQLite-backed job queue. See [docs/features/distributed-scan.md](docs/features/distributed-scan.md). |
 
-> All Phase 1-6 features are landed on the `main` branch — this README's *Roadmap* below tracks what's queued next.
+> All Phase 1-6 and Batch 4 features are landed on the `main` branch — this README's *Roadmap* below tracks what's queued next.
 
 ---
 
@@ -268,8 +272,9 @@ Artefacts land in `apps/desktop/src-tauri/target/release/bundle/`.
 
 - macOS DMG bundling (currently Windows + Linux only).
 - HTTP/2 upgrade negotiation in the proxy core.
-- Recorded-login replay via Playwright-style session capture.
-- Team-mode shared state over a Realtime channel (Supabase / NATS / Liveblocks).
+- ~~Recorded-login replay via Playwright-style session capture.~~ — landed in batch 4 (`docs/features/recorded-macros.md`).
+- ~~Team-mode shared state over a Realtime channel.~~ — landed in batch 4 (`docs/features/collaboration.md` + opt-in cloud sync at `docs/features/cloud-sync.md`).
+- ~~Distributed / horizontal scanner fleet.~~ — landed in batch 4 (`docs/features/distributed-scan.md`).
 - Native plugin SDK for Rust + WASM in addition to the current JS plugin runtime.
 
 ---
