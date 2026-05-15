@@ -330,6 +330,34 @@ export interface CollaboratorSession {
 }
 
 // ---------------------------------------------------------------------------
+// Playwright recorded browser macros (Feature B — Burp Pro parity)
+// ---------------------------------------------------------------------------
+
+export type PlaywrightAction =
+  | { kind: "navigate"; url: string }
+  | { kind: "click"; selector: string }
+  | { kind: "fill"; selector: string; value: string }
+  | { kind: "press"; selector: string; key: string }
+  | { kind: "wait_for_url"; url: string }
+  | { kind: "expect_url"; url: string }
+  | { kind: "raw"; line: string };
+
+export interface PlaywrightRecording {
+  id: string;
+  name: string;
+  description: string;
+  actions: PlaywrightAction[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlaywrightAvailability {
+  available: boolean;
+  version: string | null;
+  install_hint: string;
+}
+
+// ---------------------------------------------------------------------------
 // JWT toolkit (Feature Q)
 // ---------------------------------------------------------------------------
 

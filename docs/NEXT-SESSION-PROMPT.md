@@ -38,47 +38,27 @@ Burp Suite replacement, then surpass Burp Pro on differentiators.
 | Leapfrog #6 | Live OWASP dashboard (batch 3) | `apps/desktop/crates/nyxproxy-core/src/owasp_dashboard.rs` |
 | Leapfrog #8 | Encrypted `.nyxshare` evidence packs (batch 3) | `apps/desktop/crates/nyxproxy-core/src/nyxshare.rs` |
 
-## Pending features (20 — to be implemented in this next session)
+## Pending features (16 — to be implemented in upcoming sessions)
 
 Implement these **fullstack, real, tested** — Rust module + Tauri command +
 typed frontend API + UI surface + Markdown doc + unit tests. **No mocks, no
-placeholders.** Group into PR batches of 4 features each (5 batches total).
+placeholders.** Group into PR batches of 4 features each (4 batches total).
 
-### Batch 4
+### Batch 4 — ✅ landed in `devin/1778776529-batch4-features`
 
-1. **B — Recorded Playwright login macros**
-   - Save Playwright trace to `~/.nyxproxy/macros/<name>/trace.zip`.
-   - New Tauri command `macro_record_start_cmd` spawns `playwright codegen`
-     pointed at the chosen URL through the NyxProxy listener.
-   - On stop, parse the resulting `.spec.ts` into a JSON DSL stored next to
-     the trace. Trigger replay via existing `MacroStore`.
-   - Tests: parser unit tests covering navigation, click, fill, expect.
-   - Doc: `docs/features/recorded-macros.md`.
-
-2. **F — Cloud sync via Supabase (optional)**
-   - Backend gets `/sync/push`, `/sync/pull` routes using Supabase service
-     role key (env var only). Tables: `nyx_history`, `nyx_issues`,
-     `nyx_scope`, all keyed by `user_id`.
-   - Tauri commands `sync_push_cmd` and `sync_pull_cmd` with conflict
-     resolution `last_write_wins`.
-   - User settings panel toggles sync; if backend env is missing return
-     `feature disabled — set SUPABASE_URL + SUPABASE_KEY`.
-   - Tests: round-trip serialisation, conflict resolver.
-
-3. **J — Live multi-user collaboration via WebRTC**
-   - Use simple-peer over backend signalling room
-     `/collab/room/{room_id}`. Each peer mirrors its local
-     `proxy_event_stream` to other peers.
-   - Frontend `Collab` page shows live cursor + selection in Logger.
-   - Tests: signalling room state machine + serialisation of cursor events.
-
-4. **K — Distributed scanning fleet**
-   - New `nyxproxy-worker` binary (cargo workspace member) that long-polls
-     a backend queue endpoint `/scan/jobs/next`.
-   - Backend stores jobs in a sqlite or Supabase table.
-   - Tauri command `scan_distribute_cmd` shards a target list across
-     registered workers.
-   - Tests: shard-balancing algorithm.
+* **B — Recorded Playwright login macros** — parser at
+  `apps/desktop/crates/nyxproxy-core/src/playwright.rs`, UI on the Macros
+  page, docs at `docs/features/recorded-macros.md`.
+* **F — Cloud sync via Supabase (opt-in)** — backend
+  `apps/backend/nyxproxy_backend/routes/sync.py`, UI panel under
+  User options → Cloud sync, docs at `docs/features/cloud-sync.md`.
+* **J — Live multi-user collaboration over WebSocket signalling** — backend
+  `apps/backend/nyxproxy_backend/routes/collab.py`, dedicated `Live collab`
+  page, docs at `docs/features/collaboration.md`.
+* **K — Distributed scanning fleet** — backend
+  `apps/backend/nyxproxy_backend/routes/scan_jobs.py`, dedicated worker
+  binary at `apps/desktop/crates/nyxproxy-worker`, dedicated `Distributed
+  scan` UI page, docs at `docs/features/distributed-scan.md`.
 
 ### Batch 5
 

@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["src-tauri", "crates/nyxproxy-core", "crates/nyxproxy-scan"]
+members = [
+  "src-tauri",
+  "crates/nyxproxy-core",
+  "crates/nyxproxy-scan",
+  "crates/nyxproxy-worker",
+]
 
 [workspace.package]
 version = "0.1.0"

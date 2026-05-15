@@ -22,6 +22,8 @@ import {
   PlaySquare,
   Radio,
   Radar,
+  Layers,
+  MessagesSquare,
   Repeat,
   Settings as SettingsIcon,
   Shield,
@@ -33,6 +35,8 @@ import { Toasts } from "@/components/Toasts";
 import { AiAssistantPage } from "@/pages/AiAssistant";
 import { AiAttackPage } from "@/pages/AiAttack";
 import { CollaboratorPage } from "@/pages/Collaborator";
+import { CollabPage } from "@/pages/Collab";
+import { DistributedScanPage } from "@/pages/DistributedScan";
 import { ComparerPage } from "@/pages/Comparer";
 import { DashboardPage } from "@/pages/Dashboard";
 import { DecoderPage } from "@/pages/Decoder";
@@ -66,7 +70,9 @@ type Page =
   | "logger"
   | "extender"
   | "collaborator"
+  | "collab"
   | "macros"
+  | "distributed-scan"
   | "websockets"
   | "ai"
   | "ai-attack"
@@ -98,6 +104,8 @@ const NAV: NavEntry[] = [
   { id: "logger", label: "Logger", icon: AlignLeft, group: "tools" },
   { id: "extender", label: "Extender", icon: Plug, group: "tools" },
   { id: "collaborator", label: "Collaborator", icon: Radar, group: "tools" },
+  { id: "collab", label: "Live collab", icon: MessagesSquare, group: "tools" },
+  { id: "distributed-scan", label: "Distributed scan", icon: Layers, group: "tools" },
   { id: "macros", label: "Macros", icon: PlaySquare, group: "tools" },
   { id: "websockets", label: "WebSockets", icon: Plug2, group: "tools" },
   { id: "ai", label: "AI Assistant", icon: Brain, group: "tools" },
@@ -203,6 +211,10 @@ export function App() {
         return <ExtenderPage />;
       case "collaborator":
         return <CollaboratorPage />;
+      case "collab":
+        return <CollabPage />;
+      case "distributed-scan":
+        return <DistributedScanPage />;
       case "macros":
         return <MacrosPage />;
       case "websockets":

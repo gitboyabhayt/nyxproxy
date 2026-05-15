@@ -14,7 +14,18 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from . import __version__
 from .config import Settings, get_settings
 from .providers import build_providers
-from .routes import ai_attack, analyze, chat, collaborator, findings, health, providers
+from .routes import (
+    ai_attack,
+    analyze,
+    chat,
+    collab,
+    collaborator,
+    findings,
+    health,
+    providers,
+    scan_jobs,
+    sync,
+)
 
 _BEARER_DEP = HTTPBearer(auto_error=False)
 _BEARER = Depends(_BEARER_DEP)
@@ -72,6 +83,15 @@ def create_app() -> FastAPI:
     app.include_router(collaborator.router)
     # Findings enrichment endpoints are pure-function and offline; safe to expose unauthenticated.
     app.include_router(findings.router)
+    # Cloud sync (Feature F). Returns 503 if SUPABASE_URL / SUPABASE_SERVICE_KEY are absent;
+    # otherwise gated by the same bearer token as the AI routes.
+    app.include_router(sync.router, dependencies=[Depends(_enforce_token)])
+    # Live collaboration room (Feature J). Unauthenticated by design — the
+    # room ID acts as the shared secret, same as Collaborator.
+    app.include_router(collab.router)
+    # Distributed scanning fleet (Feature K). Workers authenticate with a
+    # shared bearer token, so we apply the standard auth dependency.
+    app.include_router(scan_jobs.router, dependencies=[Depends(_enforce_token)])
 
     @app.exception_handler(Exception)
     async def unhandled(request: Request, exc: Exception) -> JSONResponse:

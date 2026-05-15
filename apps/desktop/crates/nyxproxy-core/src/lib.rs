@@ -34,6 +34,7 @@ pub mod openapi;
 pub mod owasp;
 pub mod owasp_dashboard;
 pub mod pcap;
+pub mod playwright;
 pub mod plugins;
 pub mod proxy;
 pub mod repeater;
