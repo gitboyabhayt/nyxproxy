@@ -25,17 +25,13 @@ def test_push_returns_503_when_env_missing(
     monkeypatch.delenv("SUPABASE_URL", raising=False)
     monkeypatch.delenv("SUPABASE_KEY", raising=False)
     monkeypatch.delenv("SUPABASE_SERVICE_KEY", raising=False)
-    payload = {
-        "workspace": {"id": "w1", "owner": "u@example.com", "revision": 0, "payload": {}}
-    }
+    payload = {"workspace": {"id": "w1", "owner": "u@example.com", "revision": 0, "payload": {}}}
     r = client.post("/sync/push", json=payload)
     assert r.status_code == 503
     assert r.json()["detail"]["error"] == "feature_disabled"
 
 
-def test_status_enabled_with_env(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_status_enabled_with_env(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://demo.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "anon-key")
     r = client.get("/sync/status")
@@ -44,15 +40,11 @@ def test_status_enabled_with_env(
 
 
 @respx.mock
-def test_push_then_pull_round_trip(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
+def test_push_then_pull_round_trip(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", "https://demo.supabase.co")
     monkeypatch.setenv("SUPABASE_SERVICE_KEY", "anon-key")
 
-    upsert_route = respx.post(
-        "https://demo.supabase.co/rest/v1/nyx_workspaces"
-    ).mock(
+    upsert_route = respx.post("https://demo.supabase.co/rest/v1/nyx_workspaces").mock(
         return_value=httpx.Response(
             201,
             json=[
@@ -66,9 +58,7 @@ def test_push_then_pull_round_trip(
             ],
         )
     )
-    pull_route = respx.get(
-        "https://demo.supabase.co/rest/v1/nyx_workspaces"
-    ).mock(
+    pull_route = respx.get("https://demo.supabase.co/rest/v1/nyx_workspaces").mock(
         return_value=httpx.Response(
             200,
             json=[

@@ -61,7 +61,12 @@ class _Room:
         async with self.lock:
             self.peers[peer.peer_id] = (peer, ws)
         await self.broadcast(
-            {"type": "presence", "event": "join", "peer": peer.model_dump(), "peers": self.snapshot()},
+            {
+                "type": "presence",
+                "event": "join",
+                "peer": peer.model_dump(),
+                "peers": self.snapshot(),
+            },
             exclude=None,
         )
 

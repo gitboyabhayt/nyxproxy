@@ -118,10 +118,7 @@ async def sync_pull(owner: str, workspace_id: str) -> SyncPullResponse:
     if cfg is None:
         raise _disabled()
     url, key = cfg
-    endpoint = (
-        f"{url}/rest/v1/nyx_workspaces"
-        f"?id=eq.{workspace_id}&owner=eq.{owner}&select=*"
-    )
+    endpoint = f"{url}/rest/v1/nyx_workspaces?id=eq.{workspace_id}&owner=eq.{owner}&select=*"
     async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
         res = await client.get(endpoint, headers=_headers(key))
     if res.status_code != 200:
@@ -183,7 +180,10 @@ async def sync_push(body: SyncPushRequest) -> SyncPushResponse:
         }
         res = await client.post(
             f"{url}/rest/v1/nyx_workspaces?on_conflict=id",
-            headers={**_headers(key), "Prefer": "return=representation,resolution=merge-duplicates"},
+            headers={
+                **_headers(key),
+                "Prefer": "return=representation,resolution=merge-duplicates",
+            },
             json=upsert_payload,
         )
     if res.status_code not in (200, 201):

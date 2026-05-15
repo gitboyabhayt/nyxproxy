@@ -196,8 +196,7 @@ async def next_job(
     while True:
         with _conn() as conn:
             row = conn.execute(
-                "SELECT * FROM scan_jobs WHERE status = 'queued' "
-                "ORDER BY created_at LIMIT 1"
+                "SELECT * FROM scan_jobs WHERE status = 'queued' ORDER BY created_at LIMIT 1"
             ).fetchone()
             if row is not None:
                 job_id = row[0]
@@ -209,9 +208,7 @@ async def next_job(
                 )
                 conn.commit()
                 if cur.rowcount == 1:
-                    row = conn.execute(
-                        "SELECT * FROM scan_jobs WHERE id = ?", (job_id,)
-                    ).fetchone()
+                    row = conn.execute("SELECT * FROM scan_jobs WHERE id = ?", (job_id,)).fetchone()
                     return _row_to_job(row)
                 # someone else won the race \u2014 loop and try again.
                 continue
@@ -235,8 +232,7 @@ async def submit_result(job_id: str, body: ScanResult) -> ScanJob:
         raise HTTPException(status_code=400, detail="status must be done or failed")
     with _conn() as conn:
         cur = conn.execute(
-            "UPDATE scan_jobs SET status = ?, completed_at = ?, result = ? "
-            "WHERE id = ?",
+            "UPDATE scan_jobs SET status = ?, completed_at = ?, result = ? WHERE id = ?",
             (
                 body.status,
                 time.time(),

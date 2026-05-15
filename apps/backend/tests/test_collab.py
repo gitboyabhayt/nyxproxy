@@ -36,8 +36,10 @@ def test_join_broadcasts_presence(client: TestClient) -> None:
 
 
 def test_rebroadcasts_messages_to_other_peer(client: TestClient) -> None:
-    with client.websocket_connect("/collab/room/room-beta") as a, \
-            client.websocket_connect("/collab/room/room-beta") as b:
+    with (
+        client.websocket_connect("/collab/room/room-beta") as a,
+        client.websocket_connect("/collab/room/room-beta") as b,
+    ):
         a.send_text(json.dumps({"peer_id": "p-a", "display_name": "A"}))
         # a receives its own join.
         _recv(a)
